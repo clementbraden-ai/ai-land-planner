@@ -9,6 +9,7 @@ export interface SiteDatapoints {
   minOpenSpace: number;
   minLotSize: number;
   minLotWidth: number;
+  minNumLots: number;
   frontSetback: number;
   rearSetback: number;
   sideSetback: number;

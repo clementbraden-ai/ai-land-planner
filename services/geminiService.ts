@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import { GoogleGenAI, GenerateContentResponse, Modality } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Modality, Type } from "@google/genai";
 import { SiteDatapoints } from "../types";
 
 // Helper function to convert a File object to a Gemini API Part
@@ -101,12 +101,14 @@ export const detectSiteBoundary = async (surveyImage: File): Promise<string> => 
 /**
  * Refines a site boundary using a survey, a user-drawn mask, and a text query.
  * @param surveyImage The original site survey image file.
+ * @param boundaryImage The current boundary overlay to be edited.
  * @param maskImage The user's drawing on a transparent canvas.
  * @param query The user's text instructions.
  * @returns A promise that resolves to the data URL of the new boundary overlay image.
  */
 export const refineSiteBoundary = async (
     surveyImage: File,
+    boundaryImage: File,
     maskImage: File,
     query: string
 ): Promise<string> => {
@@ -114,20 +116,22 @@ export const refineSiteBoundary = async (
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     
     const surveyPart = await fileToPart(surveyImage);
+    const boundaryPart = await fileToPart(boundaryImage);
     const maskPart = await fileToPart(maskImage);
 
     const prompt = `You are an expert image editor specializing in site surveys. The user wants to refine a detected site boundary.
-You are given three inputs:
-1. The original site survey image.
-2. A mask image where the user has drawn on the areas to be corrected.
-3. A text query with instructions.
+You are given four inputs:
+1. The original site survey image (for context).
+2. The current boundary image (a red line on a transparent background). This is the image that needs to be edited.
+3. A mask image where the user has drawn to indicate corrections.
+4. A text query with instructions.
 
-Your task is to generate a new, corrected site boundary overlay.
+Your task is to use the user's feedback (mask and query) to modify the current boundary image.
 
 Instructions:
-- Analyze the original survey.
-- Focus on the areas highlighted in the mask image.
-- Follow the user's text query: "${query}"
+- Use the original survey for context only (to see the underlying lines).
+- Start with the current boundary image.
+- Modify the red line based on the areas highlighted in the mask image and the instructions in the user's text query: "${query}"
 - The output must be a transparent PNG with only a single, clean, red line representing the corrected boundary.
 - The output image dimensions must match the original survey image.
 
@@ -135,10 +139,10 @@ Output: Return ONLY the final image. Do not return any text.`;
 
     const textPart = { text: prompt };
     
-    console.log('Sending survey, mask, and query to the model...');
+    console.log('Sending survey, current boundary, mask, and query to the model...');
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image-preview',
-        contents: { parts: [surveyPart, maskPart, textPart] },
+        contents: { parts: [surveyPart, boundaryPart, maskPart, textPart] },
         config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
     });
     console.log('Received refined boundary response from model.', response);
@@ -148,44 +152,88 @@ Output: Return ONLY the final image. Do not return any text.`;
 
 
 /**
+ * Analyzes a survey image to get a summary.
+ * @param surveyImage The site survey image file.
+ * @returns A promise that resolves to the text summary.
+ */
+export const getSurveySummary = async (surveyImage: File): Promise<string> => {
+    console.log('Getting survey summary...');
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    const surveyImagePart = await fileToPart(surveyImage);
+    
+    const prompt = `You are a professional land surveyor's assistant. Analyze the provided site survey image. Your task is to extract key information and provide a concise summary. 
+
+Instructions:
+1.  Identify the total property size (in acres or square feet, whichever is more appropriate from the survey). State this clearly.
+2.  Note any significant features like existing structures, easements, major topographic changes (like steep slopes or bodies of water), and the general shape of the property.
+3.  Present this as a brief, easy-to-understand summary paragraph.
+4.  Start your response with "Here's a summary of my analysis:".
+
+Example: "Here's a summary of my analysis: The property is approximately 5.2 acres in size. It appears to be a rectangular lot with a significant utility easement running along the northern boundary. The terrain seems relatively flat based on the contour lines."`;
+
+    const textPart = { text: prompt };
+
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts: [surveyImagePart, textPart] },
+    });
+
+    console.log('Received survey summary from model.');
+    return response.text;
+};
+
+/**
  * Gets AI-recommended site plan datapoints based on a survey image.
  * @param surveyImage The site survey image file.
  * @param purpose The purpose of the project.
  * @param priority The main design priority.
- * @returns A promise that resolves to the text of the recommendations.
+ * @param summary The pre-computed summary of the site survey.
+ * @returns A promise that resolves to a string containing reasoning and parameter recommendations.
  */
 export const getSitePlanDatapoints = async (
     surveyImage: File,
     purpose: string,
     priority: string,
+    summary: string,
 ): Promise<string> => {
     console.log('Getting site plan datapoint recommendations...');
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     const surveyImagePart = await fileToPart(surveyImage);
     
-    const prompt = `You are an expert urban planner. Analyze the provided site survey image. Based on the survey and the user's goals, recommend site plan datapoints with numbers.
+    const prompt = `You are an expert urban planner. You have already analyzed a site survey and provided the following summary: "${summary}". 
+
+Now, based on that summary and the user's goals, provide recommended parameters for the site plan.
 
 User Goals:
 - Project Purpose: ${purpose}
 - Design Priority: ${priority}
 
-Refine your numerical recommendations to best achieve the user's priority. For example, for 'Maximize Lot Yield', suggest smaller minimum lot sizes. For 'Minimize Road Length', suggest efficient road widths.
+Your task is twofold:
+1.  First, provide a reasoning paragraph explaining *why* you are recommending certain parameters. Link your reasoning to the survey summary and the user's goals. For example, for 'Maximize Lot Yield' on a large, flat property, you'd recommend a smaller minimum lot size.
+2.  After your reasoning paragraph, output the parameters. The output format for the parameters MUST be exactly as follows, starting with "- Coverage Constraints:", with only numbers after each colon.
 
-Output format MUST be exactly as follows, with only numbers after the colon:
+---
+EXAMPLE RESPONSE STRUCTURE:
+Based on the 5.2-acre property size and the goal to maximize lot yield for a residential project, I recommend a smaller minimum lot size to increase the number of homes. The flat terrain allows for a standard road width, and the utility easement on the northern boundary will be respected by ensuring adequate setbacks.
+
 - Coverage Constraints:
-    - Maximum buildable coverage (%): [number]
-    - Minimum green coverage (%): [number]
-    - Minimum open space (%): [number]
+    - Maximum buildable coverage (%): 55
+    - Minimum green coverage (%): 15
+    - Minimum open space (%): 15
 - Lot Standards:
-    - Minimum lot size (sq ft): [number]
-    - Minimum lot width (ft): [number]
+    - Minimum lot size (sq ft): 4500
+    - Minimum lot width (ft): 45
+    - Minimum number of lots: 20
 - Setback Requirements:
-    - Front (ft): [number]
-    - Rear (ft): [number]
-    - Side (ft): [number]
+    - Front (ft): 20
+    - Rear (ft): 20
+    - Side (ft): 10
 - Infrastructure Specifications:
-    - Road width (ft): [number]
-    - Sidewalk width (ft): [number]`;
+    - Road width (ft): 24
+    - Sidewalk width (ft): 5
+---
+
+Your actual response must follow this structure. Start with your reasoning, then provide the formatted parameter list. Do not include the "EXAMPLE RESPONSE STRUCTURE" or "---" markers in your output.`;
 
     const textPart = { text: prompt };
 
@@ -258,6 +306,7 @@ Site Plan Constraints (Adhere Strictly):
 - Minimum open space: ${datapoints.minOpenSpace}%
 - Minimum lot size: ${datapoints.minLotSize} sq ft
 - Minimum lot width: ${datapoints.minLotWidth} ft
+- Minimum number of lots: ${datapoints.minNumLots}
 - Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
 - Road width: ${datapoints.roadWidth} ft
 - Sidewalk width: ${datapoints.sidewalkWidth} ft
@@ -294,6 +343,65 @@ Output: Return ONLY the final site plan image. Do not return text.`;
 };
 
 /**
+ * Updates site datapoints based on a natural language query.
+ * @param query The user's text instructions for refinement.
+ * @param currentDatapoints The current site parameters.
+ * @returns A promise that resolves to the updated site datapoints object.
+ */
+export const updateDatapointsFromQuery = async (
+    query: string,
+    currentDatapoints: SiteDatapoints
+): Promise<SiteDatapoints> => {
+    console.log('Updating datapoints from query...');
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            maxBuildableCoverage: { type: Type.NUMBER },
+            minGreenCoverage: { type: Type.NUMBER },
+            minOpenSpace: { type: Type.NUMBER },
+            minLotSize: { type: Type.NUMBER },
+            minLotWidth: { type: Type.NUMBER },
+            minNumLots: { type: Type.NUMBER },
+            frontSetback: { type: Type.NUMBER },
+            rearSetback: { type: Type.NUMBER },
+            sideSetback: { type: Type.NUMBER },
+            roadWidth: { type: Type.NUMBER },
+            sidewalkWidth: { type: Type.NUMBER },
+        },
+        required: [
+            "maxBuildableCoverage", "minGreenCoverage", "minOpenSpace",
+            "minLotSize", "minLotWidth", "minNumLots", "frontSetback",
+            "rearSetback", "sideSetback", "roadWidth", "sidewalkWidth"
+        ]
+    };
+
+    const prompt = `Analyze the user's query and update the provided JSON object of site parameters.
+- User Query: "${query}"
+- Current Parameters: ${JSON.stringify(currentDatapoints, null, 2)}
+
+Instructions:
+1. Read the user's query to identify any requests to change specific parameters. For example, "make the lots bigger" implies increasing 'minLotSize'. "I need 50 lots" implies setting 'minNumLots' to 50.
+2. If a parameter is explicitly mentioned or clearly implied in the query, update its value in the JSON object.
+3. For any parameter NOT mentioned in the query, you MUST keep its original value from the "Current Parameters".
+4. Return the complete, updated JSON object. The structure of your response must exactly match the provided schema. Do not return any other text or explanations.`;
+    
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+        },
+    });
+    
+    console.log('Received updated datapoints from model.');
+    const resultJson = JSON.parse(response.text);
+    return resultJson as SiteDatapoints;
+};
+
+/**
  * Refines an existing site plan based on user input.
  * @param currentPlanImage The current site plan image file.
  * @param surveyImage The original site survey image file for context.
@@ -326,13 +434,14 @@ Updated Constraints (Adhere Strictly):
 - Minimum open space: ${datapoints.minOpenSpace}%
 - Minimum lot size: ${datapoints.minLotSize} sq ft
 - Minimum lot width: ${datapoints.minLotWidth} ft
+- Minimum number of lots: ${datapoints.minNumLots}
 - Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
 - Road width: ${datapoints.roadWidth} ft
 - Sidewalk width: ${datapoints.sidewalkWidth} ft
 
 Instructions:
 - Analyze the current site plan image.
-- Modify it based *only* on the user's text query.
+- Modify it based on the user's text query. The query may contain both visual instructions (e.g., "add a park") and parameter changes (e.g., "make lots bigger"). Prioritize instructions in the query.
 - Ensure the refined plan still respects the updated constraints and the original survey's boundaries.
 - The output must be a new, clean, high-resolution PNG image of the refined site plan. The visual style should match the input plan.
 
@@ -373,6 +482,7 @@ Site Plan Constraints Provided to the Generator:
 - Minimum open space: ${datapoints.minOpenSpace}%
 - Minimum lot size: ${datapoints.minLotSize} sq ft
 - Minimum lot width: ${datapoints.minLotWidth} ft
+- Minimum number of lots: ${datapoints.minNumLots}
 - Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
 - Road width: ${datapoints.roadWidth} ft
 - Sidewalk width: ${datapoints.sidewalkWidth} ft

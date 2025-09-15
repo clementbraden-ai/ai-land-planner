@@ -62,6 +62,7 @@ const DatapointsForm: React.FC<DatapointsFormProps> = ({ initialData, onDataChan
                 <h4 className="font-semibold text-gray-400 text-sm border-b border-gray-600 pb-1 mb-1">Lot Standards</h4>
                 <FormRow label="Min Lot Size" unit="sq ft" name="minLotSize" value={formData.minLotSize} onChange={handleChange} />
                 <FormRow label="Min Lot Width" unit="ft" name="minLotWidth" value={formData.minLotWidth} onChange={handleChange} />
+                <FormRow label="Min Number of Lots" unit="" name="minNumLots" value={formData.minNumLots} onChange={handleChange} />
             </div>
              <div>
                 <h4 className="font-semibold text-gray-400 text-sm border-b border-gray-600 pb-1 mb-1">Setback Requirements</h4>
