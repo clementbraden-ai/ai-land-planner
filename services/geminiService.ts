@@ -86,7 +86,7 @@ export const detectSiteBoundary = async (surveyImage: File): Promise<string> => 
 
 **Final Output Requirements:**
 
-*   **Content:** The output image must contain ONLY the traced boundary line.
+*   **Content:** ONLY the traced boundary lines/curves.
 *   **Line Style:** The line must be a solid, continuous red line, approximately 4 pixels thick.
 *   **Background:** The background must be completely transparent.
 *   **Dimensions:** The output image must have the exact same dimensions as the input survey image.
@@ -128,19 +128,18 @@ export const refineSiteBoundary = async (
     const boundaryPart = await fileToPart(boundaryImage);
     const maskPart = await fileToPart(maskImage);
 
-    const prompt = `You are an expert image editor specializing in site surveys. The user wants to refine a detected site boundary.
-You are given four inputs:
-1. The original site survey image (for context).
-2. The current boundary image (a red line on a transparent background). This is the image that needs to be edited.
-3. A mask image where the user has drawn to indicate corrections.
-4. A text query with instructions.
+    const prompt =  `You are an expert image editor specializing in site surveys. The user wants to refine a detected site boundary.
+You are given three inputs:
+1. The original site survey image.
+2. A mask image where the user has drawn on the areas to be corrected.
+3. A text query with instructions.
 
-Your task is to use the user's feedback (mask and query) to modify the current boundary image.
+Your task is to generate a new, corrected site boundary overlay.
 
 Instructions:
-- Use the original survey for context only (to see the underlying lines).
-- Start with the current boundary image.
-- Modify the red line based on the areas highlighted in the mask image and the instructions in the user's text query: "${query}"
+- Analyze the original survey.
+- Focus on the areas highlighted in the mask image.
+- Follow the user's text query: "${query}"
 - The output must be a transparent PNG with only a single, clean, red line representing the corrected boundary.
 - The output image dimensions must match the original survey image.
 
@@ -281,14 +280,14 @@ export const generateSitePlan = async (
     
     const surveyImagePart = await fileToPart(surveyImage);
     const boundaryImagePart = await fileToPart(boundaryImage);
-    const parts = [surveyImagePart, boundaryImagePart];
+    const parts = [boundaryImagePart];
     
     let accessPointsPrompt = '';
     if (accessPointsImage) {
         const accessPointsPart = await fileToPart(accessPointsImage);
         parts.push(accessPointsPart);
         accessPointsPrompt = `
-**Road Access Points:** You have been provided a third image with blue circles marking mandatory road access points. The road network you design MUST connect to these points. This is a critical requirement.`;
+**Road Access Points:** You have been provided a third image with blue circles marking mandatory road access points. The road network you design MUST connect to these points. This is a critical requirement. Crucially, you must preserve these blue circles' positions exactly.`;
     }
 
     const prompt = `You are an expert urban planner and architect. Your task is to generate a professional, clear, and detailed site plan.
@@ -309,6 +308,11 @@ Road Network Style: Design a **${networkType} Network**.
 - A Circular network features roads that form loops or circles.
 - A Hierarchical network features a mix of major arterial roads and smaller local streets for efficient traffic flow.
 
+**Road Network Refinements:**
+- Optimize traffic flow and connectivity throughout the site.
+- Minimize dead-end streets where possible, unless creating a deliberate cul-de-sac for residential areas.
+- Intelligently incorporate cul-de-sacs or roundabouts where they would improve traffic circulation or lot arrangement, especially in residential layouts.
+
 Site Plan Constraints (Adhere Strictly):
 - Maximum buildable coverage: ${datapoints.maxBuildableCoverage}%
 - Minimum green coverage: ${datapoints.minGreenCoverage}%
@@ -321,14 +325,14 @@ Site Plan Constraints (Adhere Strictly):
 - Sidewalk width: ${datapoints.sidewalkWidth} ft
 
 Instructions:
-1.  Use the boundary image as a strict mask. The site plan must fill the area within the red line and not extend beyond it.
-2.  Use the survey image for context (topography, existing features if any).
+1.  Remove other elements except ONLY site boundary polygon (red lines) from provided site boundary image.
+2.  Use the site boundary polygon as a strict mask. The site plan must fill the area WITHIN the red line and NOT extend beyond it.
 3.  Create a top-down, 2D site plan drawing that strictly follows all the Site Plan Constraints listed above.
-4.  The layout must incorporate the specified **${networkType} road network style**.
+4.  The layout must incorporate the specified **${networkType} road network style** and adhere to the **Road Network Refinements**.
 5.  The layout should reflect the user's stated '${purpose}' and '${priority}'.
 6.  Incorporate key features from the survey, such as property lines, building footprints, setbacks, dimensions, and easements.
 7.  Add standard site plan elements like a north arrow, a graphical scale, and basic landscaping for context.
-8.  The final output must be a clean, high-resolution PNG image of the site plan. Do not add any text, titles, or labels outside of the plan itself.
+8.  The final output must be a clean, high-resolution PNG image of the site plan. If blue access point circles were provided in the input, they MUST be present, unmodified, in the final output image. Do not add any text, titles, or labels outside of the plan itself.
 
 Output: Return ONLY the final site plan image. Do not return text.`;
 
@@ -416,6 +420,7 @@ Instructions:
  * @param surveyImage The original site survey image file for context.
  * @param query The user's text instructions for refinement.
  * @param datapoints The updated detailed site parameters.
+ * @param accessPointsImage Optional image with user-marked access points.
  * @returns A promise that resolves to the data URL of the refined site plan image.
  */
 export const refineSitePlan = async (
@@ -423,12 +428,24 @@ export const refineSitePlan = async (
     surveyImage: File,
     query: string,
     datapoints: SiteDatapoints,
+    accessPointsImage: File | null,
 ): Promise<string> => {
     console.log('Refining site plan with user query and new datapoints...');
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     
     const currentPlanPart = await fileToPart(currentPlanImage);
     const surveyPart = await fileToPart(surveyImage);
+    const parts = [currentPlanPart, surveyPart];
+
+    let accessPointsPromptSegment = '';
+    if (accessPointsImage) {
+        const accessPointsPart = await fileToPart(accessPointsImage);
+        parts.push(accessPointsPart);
+        accessPointsPromptSegment = `
+**Road Access Points:** You are also given an image with blue circles indicating mandatory road access points.
+- The refined road network MUST connect to these points.
+- It is CRITICAL that you preserve these blue circles in their exact positions in the final output. Do not move, alter, or remove them.`;
+    }
 
     const prompt = `You are an expert urban planner. The user wants to refine an existing site plan.
 You are given:
@@ -436,6 +453,12 @@ You are given:
 2. The original site survey image for context and boundaries.
 3. A text query with refinement instructions: "${query}"
 4. Updated Site Plan Constraints.
+${accessPointsPromptSegment}
+
+**Core Planning Principles:** As you apply the user's query, also adhere to these core principles for the road network:
+- Optimize traffic flow and connectivity throughout the site.
+- Minimize dead-end streets where possible, unless creating a deliberate cul-de-sac for residential areas.
+- Intelligently incorporate cul-de-sacs or roundabouts where they would improve traffic circulation or lot arrangement.
 
 Updated Constraints (Adhere Strictly):
 - Maximum buildable coverage: ${datapoints.maxBuildableCoverage}%
@@ -451,7 +474,8 @@ Updated Constraints (Adhere Strictly):
 Instructions:
 - Analyze the current site plan image.
 - Modify it based on the user's text query. The query may contain both visual instructions (e.g., "add a park") and parameter changes (e.g., "make lots bigger"). Prioritize instructions in the query.
-- Ensure the refined plan still respects the updated constraints and the original survey's boundaries.
+- While implementing the changes, ensure the entire plan adheres to the **Core Planning Principles** mentioned above.
+- Ensure the refined plan still respects the updated constraints, the original survey's boundaries, and the mandatory access points if provided.
 - The output must be a new, clean, high-resolution PNG image of the refined site plan. The visual style should match the input plan.
 
 Output: Return ONLY the refined site plan image. Do not return any text.`;
@@ -460,7 +484,7 @@ Output: Return ONLY the refined site plan image. Do not return any text.`;
 
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image-preview',
-        contents: { parts: [currentPlanPart, surveyPart, textPart] },
+        contents: { parts: [...parts, textPart] },
         config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
     });
     console.log('Received refined site plan from model.', response);

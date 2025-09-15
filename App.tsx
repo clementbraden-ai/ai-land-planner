@@ -619,7 +619,11 @@ const App: React.FC = () => {
         // Step 2: Refine the visual plan with the query and new datapoints
         const planFile = dataURLtoFile(sitePlanImageUrl, 'plan.png');
         const surveyFile = dataURLtoFile(surveyImageUrl, 'survey.png');
-        const refinedUrl = await refineSitePlan(planFile, surveyFile, query, newDatapoints);
+        let accessPointsFile: File | null = null;
+        if (accessPointsImageUrl) {
+            accessPointsFile = dataURLtoFile(accessPointsImageUrl, 'access-points.png');
+        }
+        const refinedUrl = await refineSitePlan(planFile, surveyFile, query, newDatapoints, accessPointsFile);
         setSitePlanImageUrl(refinedUrl);
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
@@ -629,7 +633,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingState(null);
     }
-  }, [sitePlanImageUrl, surveyImageUrl]);
+  }, [sitePlanImageUrl, surveyImageUrl, accessPointsImageUrl]);
 
   const handleAnalyzeSitePlan = useCallback(async () => {
     if (!sitePlanImageUrl || !datapoints) {
