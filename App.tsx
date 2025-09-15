@@ -231,6 +231,58 @@ const App: React.FC = () => {
       designPriority, aiRecommendations, datapoints, surveySummary
   ]);
 
+  const handleUploadNew = useCallback(() => {
+    setSurveyPdf(null);
+    setSurveyImageUrl(null);
+    setBoundaryImageUrl(null);
+    setAccessPointsImageUrl(null);
+    setSitePlanImageUrl(null);
+    setPlanOptions({});
+    setPlanAnalysis(null);
+    setError(null);
+    setMessages([]);
+    setProjectPurpose(null);
+    setDesignPriority(null);
+    setAiRecommendations(null);
+    setDatapoints(null);
+    setSurveySummary(null);
+    setAppStage('UPLOAD');
+  }, []);
+
+  const handleBack = useCallback(() => {
+    switch(appStage) {
+        case 'ANALYSIS':
+            handleUploadNew(); // This resets to UPLOAD
+            break;
+        case 'BOUNDARY_REVIEW':
+            setAppStage('ANALYSIS');
+            break;
+        case 'BOUNDARY_EDIT':
+            setAppStage('BOUNDARY_REVIEW');
+            break;
+        case 'PRE_GENERATION_QUERY':
+            setAppStage('BOUNDARY_REVIEW');
+            break;
+        case 'ACCESS_POINTS':
+            setAppStage('PRE_GENERATION_QUERY');
+            break;
+        case 'PLAN_OPTIONS':
+            setAppStage('PRE_GENERATION_QUERY');
+            break;
+        case 'PLAN_REFINEMENT':
+            setSitePlanImageUrl(null);
+            setPlanAnalysis(null);
+            setAppStage('PLAN_OPTIONS');
+            break;
+        case 'PLAN_ANALYSIS':
+            setAppStage('PLAN_REFINEMENT');
+            break;
+        default:
+            // No action for UPLOAD
+            break;
+    }
+  }, [appStage, handleUploadNew]);
+
   // Effect to fetch the survey summary when entering the ANALYSIS stage
   useEffect(() => {
     const fetchSummary = async () => {
@@ -337,7 +389,7 @@ const App: React.FC = () => {
       setSurveyPdf(file);
       processUploadedPdf(file);
     }
-  }, []);
+  }, [handleUploadNew]);
 
   const parseDatapoints = (text: string): SiteDatapoints => {
     const defaults: SiteDatapoints = {
@@ -605,24 +657,6 @@ const App: React.FC = () => {
     }
   }, [sitePlanImageUrl, datapoints]);
 
-  const handleUploadNew = useCallback(() => {
-    setSurveyPdf(null);
-    setSurveyImageUrl(null);
-    setBoundaryImageUrl(null);
-    setAccessPointsImageUrl(null);
-    setSitePlanImageUrl(null);
-    setPlanOptions({});
-    setPlanAnalysis(null);
-    setError(null);
-    setMessages([]);
-    setProjectPurpose(null);
-    setDesignPriority(null);
-    setAiRecommendations(null);
-    setDatapoints(null);
-    setSurveySummary(null);
-    setAppStage('UPLOAD');
-  }, []);
-
   const handleDownload = (imageUrl: string, filename: string) => {
       if (imageUrl) {
           const link = document.createElement('a');
@@ -668,8 +702,9 @@ const App: React.FC = () => {
         return (
              <BoundaryEditor
                 surveyImageUrl={surveyImageUrl}
+                boundaryImageUrl={boundaryImageUrl}
                 onRefine={handleRefineBoundary}
-                onCancel={() => setAppStage('BOUNDARY_REVIEW')}
+                onBack={handleBack}
              />
         );
     }
@@ -680,7 +715,7 @@ const App: React.FC = () => {
               surveyImageUrl={surveyImageUrl}
               boundaryImageUrl={boundaryImageUrl}
               onConfirm={handleConfirmAccessPoints}
-              onCancel={() => setAppStage('PRE_GENERATION_QUERY')}
+              onBack={handleBack}
               isLoading={isLoading}
           />
       );
@@ -691,6 +726,7 @@ const App: React.FC = () => {
             options={planOptions} 
             onSelect={handleSelectPlanOption}
             isLoading={isGeneratingPlans}
+            onBack={handleBack}
         />;
     }
 
@@ -822,7 +858,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen text-gray-200 bg-transparent">
-      <Header />
+      <Header onBack={handleBack} appStage={appStage} />
       <main className="p-4 sm:p-8 flex flex-col items-center justify-center flex-grow" style={{ minHeight: 'calc(100vh - 73px)'}}>
           {isStateLoaded && renderContent()}
       </main>

@@ -74,14 +74,23 @@ export const detectSiteBoundary = async (surveyImage: File): Promise<string> => 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     
     const surveyImagePart = await fileToPart(surveyImage);
-    const prompt = `Analyze the provided site survey image. Your task is to identify the primary property boundary.
-    
-    Instructions:
-    1.  Trace the exact site boundary polygon with a prominent red line (e.g., 3-5 pixels thick).
-    2.  The output image must have the same dimensions as the input.
-    3.  Make the background of the output image transparent, so only the red line is visible. This is crucial for overlaying.
-    
-    Output: Return ONLY the final image with the transparent background and red boundary line. Do not return any text.`;
+    const prompt = `You are an expert AI cartographer specializing in interpreting land survey documents. Your task is to accurately extract the primary property boundary from the provided survey image. Follow these steps carefully in your reasoning process before generating the final image.
+
+**Chain of Thought Instructions:**
+
+1.  **Analyze the entire survey:** First, examine the image to understand its components. Identify the main drawing area that depicts the property, and distinguish it from title blocks, legends, and notes.
+2.  **Identify Boundary Line Candidates:** Look for lines that define the property's perimeter. The primary boundary line is typically the most prominent, solid, and continuous line enclosing the main parcel. It is often thicker than other lines like easements, setbacks, or contour lines. It will have annotations along its segments, such as distances (e.g., '120.55 ft') and bearings (e.g., 'N 89° E').
+3.  **Select the Correct Boundary:** From the candidates, select the single, closed polygon that represents the legal property boundary. Ignore internal subdivision lines or other non-boundary features.
+4.  **Trace with Precision:** Mentally trace the selected boundary line from corner to corner. Pay close attention to curves and angles to ensure an exact match.
+5.  **Construct the Final Output:** Based on your precise tracing, generate the output image.
+
+**Final Output Requirements:**
+
+*   **Content:** The output image must contain ONLY the traced boundary line.
+*   **Line Style:** The line must be a solid, continuous red line, approximately 4 pixels thick.
+*   **Background:** The background must be completely transparent.
+*   **Dimensions:** The output image must have the exact same dimensions as the input survey image.
+*   **Format:** Do not include any text, annotations, or other marks. Return only the image.`;
 
     const textPart = { text: prompt };
 

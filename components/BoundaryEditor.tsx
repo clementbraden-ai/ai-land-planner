@@ -5,21 +5,34 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { dataURLtoFile } from '../App';
-import { PencilIcon, UploadIcon, LineIcon } from './icons';
+import { PencilIcon, UploadIcon, LineIcon, EyeIcon, UndoIcon, RedoIcon } from './icons';
 import Spinner from './Spinner';
 
 interface BoundaryEditorProps {
   surveyImageUrl: string;
+  boundaryImageUrl: string;
   onRefine: (maskFile: File, query: string) => Promise<void>;
-  onCancel: () => void;
+  onBack: () => void;
 }
 
 type Point = { x: number; y: number };
 type Tool = 'pencil' | 'line';
 
-const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, onRefine, onCancel }) => {
+const LayerToggle: React.FC<{ label: string; checked: boolean; onChange: () => void; disabled: boolean; }> = ({ label, checked, onChange, disabled }) => (
+    <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+        <div className="relative">
+            <input type="checkbox" className="sr-only peer" checked={checked} onChange={onChange} disabled={disabled} />
+            <div className="w-10 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+        </div>
+        <span className="text-sm font-medium text-gray-300">{label}</span>
+    </label>
+);
+
+
+const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, boundaryImageUrl, onRefine, onBack }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawing = useRef(false);
+  const hasDrawn = useRef(false);
   const lastPos = useRef<Point | null>(null);
   const lineStartPos = useRef<Point | null>(null);
   const canvasSnapshot = useRef<ImageData | null>(null);
@@ -30,6 +43,64 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, onRefin
   const [tool, setTool] = useState<Tool>('pencil');
   const [brushSize, setBrushSize] = useState(15);
   const [opacity, setOpacity] = useState(1.0);
+  
+  // Layer visibility state
+  const [layers, setLayers] = useState({
+    survey: true,
+    boundary: true,
+    drawing: true,
+  });
+
+  // History state
+  const history = useRef<ImageData[]>([]);
+  const historyIndex = useRef(-1);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const handleLayerToggle = (layer: keyof typeof layers) => {
+    setLayers(prev => ({ ...prev, [layer]: !prev[layer] }));
+  };
+
+  const updateUndoRedoState = () => {
+      setCanUndo(historyIndex.current > 0);
+      setCanRedo(historyIndex.current < history.current.length - 1);
+  };
+
+  const saveState = () => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (!canvas || !ctx) return;
+      
+      const currentState = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const newHistory = history.current.slice(0, historyIndex.current + 1);
+      newHistory.push(currentState);
+
+      history.current = newHistory;
+      historyIndex.current = newHistory.length - 1;
+      updateUndoRedoState();
+  };
+
+  const restoreState = (state: ImageData) => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (canvas && ctx) {
+          ctx.putImageData(state, 0, 0);
+      }
+  };
+
+  const handleUndo = () => {
+      if (!canUndo) return;
+      historyIndex.current--;
+      restoreState(history.current[historyIndex.current]);
+      updateUndoRedoState();
+  };
+
+  const handleRedo = () => {
+      if (!canRedo) return;
+      historyIndex.current++;
+      restoreState(history.current[historyIndex.current]);
+      updateUndoRedoState();
+  };
 
 
   useEffect(() => {
@@ -44,6 +115,12 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, onRefin
     img.onload = () => {
       canvas.width = img.width;
       canvas.height = img.height;
+      // Initialize history
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const initialState = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      history.current = [initialState];
+      historyIndex.current = 0;
+      updateUndoRedoState();
     };
 
     const getMousePos = (e: MouseEvent): Point => {
@@ -64,6 +141,7 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, onRefin
     };
 
     const startDrawing = (e: MouseEvent) => {
+      hasDrawn.current = false;
       const pos = getMousePos(e);
       setupContext();
       if (tool === 'pencil') {
@@ -76,6 +154,9 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, onRefin
     };
 
     const draw = (e: MouseEvent) => {
+      if (isDrawing.current || lineStartPos.current) {
+          hasDrawn.current = true;
+      }
       const pos = getMousePos(e);
       if (tool === 'pencil') {
         if (!isDrawing.current || !lastPos.current) return;
@@ -111,6 +192,10 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, onRefin
         lineStartPos.current = null;
         canvasSnapshot.current = null;
       }
+
+      if (hasDrawn.current) {
+          saveState();
+      }
     };
 
     canvas.addEventListener('mousedown', startDrawing);
@@ -132,6 +217,7 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, onRefin
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        saveState();
       }
     }
   };
@@ -165,34 +251,51 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, onRefin
             <p className="text-gray-400 mt-2">Use the tools to highlight areas on the survey that need correction, then describe the changes below.</p>
         </div>
 
-        {/* --- Drawing Toolbar --- */}
-        <div className="w-full bg-gray-900/60 border border-gray-700 rounded-lg p-2 flex flex-col sm:flex-row items-center justify-between gap-4 backdrop-blur-sm">
-            <div className='flex items-center gap-2'>
-                <span className='text-sm font-semibold text-gray-400'>Tool:</span>
-                <button onClick={() => setTool('pencil')} disabled={isUpdating} className={`p-2 rounded-md transition-colors ${tool === 'pencil' ? 'bg-blue-600 text-white' : 'bg-white/10 hover:bg-white/20'}`}><PencilIcon className='w-5 h-5'/></button>
-                <button onClick={() => setTool('line')} disabled={isUpdating} className={`p-2 rounded-md transition-colors ${tool === 'line' ? 'bg-blue-600 text-white' : 'bg-white/10 hover:bg-white/20'}`}><LineIcon className='w-5 h-5'/></button>
+        {/* --- Drawing & Layer Toolbar --- */}
+        <div className="w-full bg-gray-900/60 border border-gray-700 rounded-lg p-3 flex flex-col gap-3 backdrop-blur-sm">
+            <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center sm:justify-between gap-4">
+                 <div className='flex items-center gap-2'>
+                    <span className='text-sm font-semibold text-gray-400'>Tool:</span>
+                    <button onClick={() => setTool('pencil')} disabled={isUpdating} className={`p-2 rounded-md transition-colors ${tool === 'pencil' ? 'bg-blue-600 text-white' : 'bg-white/10 hover:bg-white/20'}`}><PencilIcon className='w-5 h-5'/></button>
+                    <button onClick={() => setTool('line')} disabled={isUpdating} className={`p-2 rounded-md transition-colors ${tool === 'line' ? 'bg-blue-600 text-white' : 'bg-white/10 hover:bg-white/20'}`}><LineIcon className='w-5 h-5'/></button>
+                </div>
+                 <div className='flex items-center gap-2'>
+                    <span className='text-sm font-semibold text-gray-400'>Size:</span>
+                    <input type="range" min="2" max="50" value={brushSize} onChange={e => setBrushSize(Number(e.target.value))} disabled={isUpdating} className="w-24 cursor-pointer" />
+                    <span className='text-xs text-gray-300 w-6 text-right'>{brushSize}px</span>
+                </div>
+                 <div className='flex items-center gap-2'>
+                    <span className='text-sm font-semibold text-gray-400'>Opacity:</span>
+                    <input type="range" min="0.1" max="1.0" step="0.1" value={opacity} onChange={e => setOpacity(Number(e.target.value))} disabled={isUpdating} className="w-24 cursor-pointer" />
+                    <span className='text-xs text-gray-300 w-8 text-right'>{Math.round(opacity * 100)}%</span>
+                </div>
+                <div className='flex items-center gap-2'>
+                    <button onClick={handleUndo} disabled={!canUndo || isUpdating} className={`p-2 rounded-md transition-colors bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed`} title="Undo"><UndoIcon className='w-5 h-5'/></button>
+                    <button onClick={handleRedo} disabled={!canRedo || isUpdating} className={`p-2 rounded-md transition-colors bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed`} title="Redo"><RedoIcon className='w-5 h-5'/></button>
+                </div>
             </div>
-             <div className='flex items-center gap-2'>
-                <span className='text-sm font-semibold text-gray-400'>Size:</span>
-                <input type="range" min="2" max="50" value={brushSize} onChange={e => setBrushSize(Number(e.target.value))} disabled={isUpdating} className="w-24 cursor-pointer" />
-                <span className='text-xs text-gray-300 w-6 text-right'>{brushSize}px</span>
-            </div>
-             <div className='flex items-center gap-2'>
-                <span className='text-sm font-semibold text-gray-400'>Opacity:</span>
-                <input type="range" min="0.1" max="1.0" step="0.1" value={opacity} onChange={e => setOpacity(Number(e.target.value))} disabled={isUpdating} className="w-24 cursor-pointer" />
-                <span className='text-xs text-gray-300 w-8 text-right'>{Math.round(opacity * 100)}%</span>
-            </div>
+             <div className="border-t border-gray-700 -mx-3 my-1"></div>
+             <div className="flex items-center justify-center gap-6">
+                <div className="flex items-center gap-2 text-sm font-semibold text-gray-400">
+                    <EyeIcon className='w-5 h-5' />
+                    <span>Layers:</span>
+                </div>
+                <LayerToggle label="Survey" checked={layers.survey} onChange={() => handleLayerToggle('survey')} disabled={isUpdating} />
+                <LayerToggle label="Boundary" checked={layers.boundary} onChange={() => handleLayerToggle('boundary')} disabled={isUpdating} />
+                <LayerToggle label="Drawing" checked={layers.drawing} onChange={() => handleLayerToggle('drawing')} disabled={isUpdating} />
+             </div>
         </div>
 
-        <div className="relative border-2 border-dashed border-gray-600 rounded-lg overflow-hidden">
+        <div className="relative border-2 border-dashed border-gray-600 rounded-lg overflow-hidden bg-gray-900">
              {isUpdating && (
-                <div className="absolute inset-0 bg-black/70 z-10 flex flex-col items-center justify-center gap-4 animate-fade-in backdrop-blur-sm">
+                <div className="absolute inset-0 bg-black/70 z-20 flex flex-col items-center justify-center gap-4 animate-fade-in backdrop-blur-sm">
                     <Spinner />
                     <p className="text-gray-300">Updating boundary...</p>
                 </div>
             )}
-            <img src={surveyImageUrl} alt="Site Survey" className="w-full h-auto object-contain" />
-            <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full cursor-crosshair" />
+            <img src={surveyImageUrl} alt="Site Survey" className={`w-full h-auto object-contain transition-opacity duration-300 ${layers.survey ? 'opacity-100' : 'opacity-0'}`} />
+            <img src={boundaryImageUrl} alt="Current Site Boundary" className={`absolute top-0 left-0 w-full h-full object-contain pointer-events-none transition-opacity duration-300 ${layers.boundary ? 'opacity-100' : 'opacity-0'}`} />
+            <canvas ref={canvasRef} className={`absolute top-0 left-0 w-full h-full cursor-crosshair z-10 transition-opacity duration-300 ${layers.drawing ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} />
         </div>
 
         <div className="w-full bg-gray-800/50 border border-gray-700 rounded-lg p-4 flex flex-col gap-4 backdrop-blur-sm">
@@ -216,11 +319,11 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, onRefin
                     Clear Drawing
                  </button>
                  <button 
-                    onClick={onCancel}
+                    onClick={onBack}
                     disabled={isUpdating}
-                    className="flex-1 bg-red-600/80 text-white font-semibold py-3 px-4 rounded-md transition-colors hover:bg-red-500 disabled:opacity-50"
+                    className="flex-1 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20 disabled:opacity-50"
                  >
-                    Cancel
+                    Back
                  </button>
                 <button
                     onClick={handleUpdate}

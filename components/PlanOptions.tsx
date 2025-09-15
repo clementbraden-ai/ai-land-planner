@@ -5,21 +5,32 @@
 
 import React from 'react';
 import Spinner from './Spinner';
+import { UndoIcon } from './icons';
 
 interface PlanOptionsProps {
   options: Record<string, { url: string | null; description: string }>;
   onSelect: (imageUrl: string) => void;
   isLoading: boolean;
+  onBack: () => void;
 }
 
-const PlanOptions: React.FC<PlanOptionsProps> = ({ options, onSelect, isLoading }) => {
+const PlanOptions: React.FC<PlanOptionsProps> = ({ options, onSelect, isLoading, onBack }) => {
     const optionEntries = Object.entries(options);
     
     return (
         <div className="w-full max-w-7xl mx-auto flex flex-col items-center gap-6 animate-fade-in">
-            <div className='text-center'>
+            <div className='text-center relative w-full'>
+                <button
+                    onClick={onBack}
+                    className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-2 text-gray-300 hover:text-white transition-colors group"
+                    aria-label="Go back"
+                    disabled={isLoading}
+                >
+                    <UndoIcon className="w-5 h-5 transition-transform group-hover:-translate-x-1" />
+                    <span className="hidden sm:inline">Back</span>
+                </button>
                 <h2 className="text-3xl font-bold text-gray-100">Select an Initial Concept</h2>
-                <p className="text-gray-400 mt-2 max-w-2xl">The AI has generated four site plan concepts based on different road network types. Choose one to refine further.</p>
+                <p className="text-gray-400 mt-2 max-w-2xl mx-auto">The AI has generated four site plan concepts based on different road network types. Choose one to refine further.</p>
             </div>
 
             {isLoading && !optionEntries.some(o => o[1].url) && (

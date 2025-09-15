@@ -11,13 +11,13 @@ interface AccessPointEditorProps {
   surveyImageUrl: string;
   boundaryImageUrl: string;
   onConfirm: (accessPointsFile: File) => void;
-  onCancel: () => void;
+  onBack: () => void;
   isLoading: boolean;
 }
 
 type Point = { x: number, y: number };
 
-const AccessPointEditor: React.FC<AccessPointEditorProps> = ({ surveyImageUrl, boundaryImageUrl, onConfirm, onCancel, isLoading }) => {
+const AccessPointEditor: React.FC<AccessPointEditorProps> = ({ surveyImageUrl, boundaryImageUrl, onConfirm, onBack, isLoading }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [points, setPoints] = useState<Point[]>([]);
 
@@ -106,11 +106,11 @@ const AccessPointEditor: React.FC<AccessPointEditorProps> = ({ surveyImageUrl, b
                 Clear All Points
              </button>
              <button 
-                onClick={onCancel}
+                onClick={onBack}
                 disabled={isLoading}
-                className="flex-1 bg-red-600/80 text-white font-semibold py-3 px-4 rounded-md transition-colors hover:bg-red-500 disabled:opacity-50"
+                className="flex-1 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20 disabled:opacity-50"
              >
-                Cancel
+                Back
              </button>
             <button
                 onClick={handleConfirm}
