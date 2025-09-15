@@ -1,0 +1,6 @@
+{
+  "name": "Smart Land Planner",
+  "description": "An AI-powered tool to generate site plans from PDF surveys.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
