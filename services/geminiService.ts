@@ -171,13 +171,18 @@ export const getSurveySummary = async (surveyImage: File): Promise<string> => {
     
     const prompt = `You are a professional land surveyor's assistant. Analyze the provided site survey image. Your task is to extract key information and provide a concise summary. 
 
-Instructions:
-1.  Identify the total property size (in acres or square feet, whichever is more appropriate from the survey). State this clearly.
-2.  Note any significant features like existing structures, easements, major topographic changes (like steep slopes or bodies of water), and the general shape of the property.
-3.  Present this as a brief, easy-to-understand summary paragraph.
-4.  Start your response with "Here's a summary of my analysis:".
+**Instructions:**
+1.  Identify the total property size (in acres or square feet).
+2.  Note any significant features like existing structures, easements, major topographic changes (slopes, water), and the property shape.
+3.  Format your response using Markdown. Start with the heading "### Site Survey Summary".
+4.  Include a bulleted list of your findings.
 
-Example: "Here's a summary of my analysis: The property is approximately 5.2 acres in size. It appears to be a rectangular lot with a significant utility easement running along the northern boundary. The terrain seems relatively flat based on the contour lines."`;
+**Example Response:**
+### Site Survey Summary
+Here is a brief analysis of the provided survey:
+*   **Property Size:** Approximately 5.2 acres.
+*   **Key Features:** It's a rectangular lot with a utility easement on the northern boundary.
+*   **Topography:** The terrain appears to be relatively flat.`;
 
     const textPart = { text: prompt };
 
@@ -212,17 +217,17 @@ export const getSitePlanDatapoints = async (
 
 Now, based on that summary and the user's goals, provide recommended parameters for the site plan.
 
-User Goals:
-- Project Purpose: ${purpose}
-- Design Priority: ${priority}
+**User Goals:**
+- **Project Purpose:** ${purpose}
+- **Design Priority:** ${priority}
 
-Your task is twofold:
-1.  First, provide a reasoning paragraph explaining *why* you are recommending certain parameters. Link your reasoning to the survey summary and the user's goals. For example, for 'Maximize Lot Yield' on a large, flat property, you'd recommend a smaller minimum lot size.
+**Your task is twofold:**
+1.  First, provide a reasoning paragraph explaining *why* you are recommending certain parameters. Link your reasoning to the survey summary and the user's goals. **Use Markdown for formatting** (e.g., use bold text for key terms like **lot yield** or **flat terrain**).
 2.  After your reasoning paragraph, output the parameters. The output format for the parameters MUST be exactly as follows, starting with "- Coverage Constraints:", with only numbers after each colon.
 
 ---
 EXAMPLE RESPONSE STRUCTURE:
-Based on the 5.2-acre property size and the goal to maximize lot yield for a residential project, I recommend a smaller minimum lot size to increase the number of homes. The flat terrain allows for a standard road width, and the utility easement on the northern boundary will be respected by ensuring adequate setbacks.
+Based on the **5.2-acre** property size and the goal to **maximize lot yield** for a residential project, I recommend a smaller minimum lot size to increase the number of homes. The **flat terrain** allows for a standard road width, and the utility easement on the northern boundary will be respected by ensuring adequate setbacks.
 
 - Coverage Constraints:
     - Maximum buildable coverage (%): 55
@@ -292,9 +297,8 @@ export const generateSitePlan = async (
 
     const prompt = `You are an expert urban planner and architect. Your task is to generate a professional, clear, and detailed site plan.
 You have been provided with:
-1. An image of a site survey.
-2. An image showing the exact property boundary line in red on a transparent background.
-${accessPointsImage ? "3. An image with blue circles marking mandatory road access points.\n" : ""}
+- An image showing the exact site boundary polygon (red lines)
+${accessPointsImage ? "- An image with blue circles marking mandatory road access points.\n" : ""}
 **Primary instruction: All elements of the generated site plan (roads, lots, green spaces, etc.) MUST be located entirely INSIDE the red boundary line shown in the boundary image.** Do not draw anything outside of this boundary.
 ${accessPointsPrompt}
 
@@ -302,13 +306,9 @@ User Requirements:
 - Project Purpose: ${purpose}
 - Design Priority: ${priority}
 
-Road Network Style: Design a **${networkType} Network**.
-- A Grid network features streets in a criss-cross pattern.
-- A Radial network features roads spreading out from a central point.
-- A Circular network features roads that form loops or circles.
-- A Hierarchical network features a mix of major arterial roads and smaller local streets for efficient traffic flow.
+Road Network Style: ${networkType} Network
 
-**Road Network Refinements:**
+Road Network Refinements:
 - Optimize traffic flow and connectivity throughout the site.
 - Minimize dead-end streets where possible, unless creating a deliberate cul-de-sac for residential areas.
 - Intelligently incorporate cul-de-sacs or roundabouts where they would improve traffic circulation or lot arrangement, especially in residential layouts.
@@ -326,13 +326,12 @@ Site Plan Constraints (Adhere Strictly):
 
 Instructions:
 1.  Remove other elements except ONLY site boundary polygon (red lines) from provided site boundary image.
-2.  Use the site boundary polygon as a strict mask. The site plan must fill the area WITHIN the red line and NOT extend beyond it.
+2.  Design a ${networkType} road network ONLY INSIDE site boundary polygon (red lines) while considering lotting.
 3.  Create a top-down, 2D site plan drawing that strictly follows all the Site Plan Constraints listed above.
 4.  The layout must incorporate the specified **${networkType} road network style** and adhere to the **Road Network Refinements**.
 5.  The layout should reflect the user's stated '${purpose}' and '${priority}'.
 6.  Incorporate key features from the survey, such as property lines, building footprints, setbacks, dimensions, and easements.
-7.  Add standard site plan elements like a north arrow, a graphical scale, and basic landscaping for context.
-8.  The final output must be a clean, high-resolution PNG image of the site plan. If blue access point circles were provided in the input, they MUST be present, unmodified, in the final output image. Do not add any text, titles, or labels outside of the plan itself.
+7.  The final output must be a clean, high-resolution PNG image of the site plan. Highlight road network (black), green space (green), lots (gray).
 
 Output: Return ONLY the final site plan image. Do not return text.`;
 

@@ -88,7 +88,15 @@ const SiteAnalysisChat: React.FC<SiteAnalysisChatProps> = ({ messages, onOptionS
                     <div key={msg.id} className={`flex items-start gap-3 animate-fade-in ${msg.sender === 'user' ? 'justify-end' : ''}`}>
                          {msg.sender === 'bot' && <div className="w-8 h-8 flex-shrink-0 bg-blue-500/20 rounded-full flex items-center justify-center"><RobotIcon className="w-5 h-5 text-blue-300" /></div>}
                         <div className={`rounded-lg px-4 py-3 max-w-sm ${msg.sender === 'bot' ? 'bg-gray-700/50 text-gray-200' : 'bg-blue-600 text-white'}`}>
-                            <p className="text-base whitespace-pre-wrap">{msg.text}</p>
+                            {msg.sender === 'bot' ? (
+                                <div className="prose prose-chat max-w-none">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {msg.text}
+                                    </ReactMarkdown>
+                                </div>
+                            ) : (
+                                <p className="text-base whitespace-pre-wrap">{msg.text}</p>
+                            )}
                         </div>
                     </div>
                 ))}

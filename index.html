@@ -254,6 +254,37 @@ body {
     color: #F9FAFB;
 }
 
+/* Custom prose styles for chat bubbles */
+.prose-chat {
+    font-size: 0.9rem; /* Slightly smaller for chat */
+    line-height: 1.5;
+}
+.prose-chat p, .prose-chat ul, .prose-chat ol {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+}
+.prose-chat p:first-child, .prose-chat ul:first-child, .prose-chat ol:first-child {
+    margin-top: 0;
+}
+.prose-chat p:last-child, .prose-chat ul:last-child, .prose-chat ol:last-child {
+    margin-bottom: 0;
+}
+.prose-chat h1, .prose-chat h2, .prose-chat h3, .prose-chat h4 {
+    margin-top: 0.8em;
+    margin-bottom: 0.4em;
+    font-size: 1.1em; /* Make headings smaller in chat */
+    font-weight: 600;
+}
+.prose-chat ul, .prose-chat ol {
+    padding-left: 1.2em;
+}
+.prose-chat a {
+    color: #93C5FD; /* text-blue-300 for better contrast */
+}
+.prose-chat strong {
+    color: #F9FAFB; /* text-gray-50 */
+}
+
 </style>
   <link rel="stylesheet" href="/index.css">
 </head>
