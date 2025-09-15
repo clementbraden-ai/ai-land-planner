@@ -494,15 +494,15 @@ Output: Return ONLY the refined site plan image. Do not return any text.`;
 
 
 /**
- * Analyzes a site plan based on the image and datapoints.
+ * Analyzes a site plan based on the image and datapoints, and streams the result.
  * @param sitePlanImage The generated site plan image file.
  * @param datapoints The detailed site parameters used for generation.
- * @returns A promise that resolves to the text of the analysis.
+ * @returns An async generator that yields chunks of the analysis text.
  */
-export const analyzeSitePlan = async (
+export const analyzeSitePlan = async function* (
     sitePlanImage: File,
     datapoints: SiteDatapoints,
-): Promise<string> => {
+): AsyncGenerator<string> {
     console.log('Analyzing site plan with datapoints:', datapoints);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
@@ -526,15 +526,18 @@ Analysis Instructions:
 3.  **Cons:** What are the weaknesses or potential problems with this layout? Consider dead ends, awkward lot shapes, inefficient use of space, or potential traffic bottlenecks.
 4.  **Suggestions for Improvement:** Provide 2-3 actionable suggestions for how this plan could be improved. For example, "Consider adding a cul-de-sac to improve traffic flow in the residential area," or "The green space could be consolidated into a central park for better community access."
 
-Format your response clearly with headings for each section (Constraint Compliance, Pros, Cons, Suggestions for Improvement). Be professional, concise, and constructive.`;
+Format your response using Markdown. Use headings (e.g., \`## Constraint Compliance\`), bold text, and lists to structure your analysis clearly. Be professional, concise, and constructive.`;
     
     const textPart = { text: prompt };
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
+    const responseStream = await ai.models.generateContentStream({
         model: 'gemini-2.5-flash',
         contents: { parts: [planImagePart, textPart] },
     });
     
-    console.log('Received site plan analysis from model.');
-    return response.text;
+    for await (const chunk of responseStream) {
+        yield chunk.text;
+    }
+
+    console.log('Finished streaming site plan analysis.');
 };

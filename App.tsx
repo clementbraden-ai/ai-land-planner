@@ -17,6 +17,8 @@ import AccessPointEditor from './components/AccessPointEditor';
 import PlanOptions from './components/PlanOptions';
 import PlanRefiner from './components/PlanRefiner';
 import { UploadIcon, MagicWandIcon, RobotIcon, CheckIcon, PencilIcon } from './components/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // Set worker source for pdf.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.5.136/build/pdf.worker.mjs`;
@@ -637,27 +639,27 @@ const App: React.FC = () => {
 
   const handleAnalyzeSitePlan = useCallback(async () => {
     if (!sitePlanImageUrl || !datapoints) {
-      setError('Generated plan or datapoints not available for analysis.');
-      return;
+        setError('Generated plan or datapoints not available for analysis.');
+        return;
     }
-    setIsLoading(true);
-    setLoadingState({
-        title: "Analyzing Your Site Plan",
-        messages: ["Checking against constraints...", "Evaluating pros and cons...", "Identifying areas for improvement...", "Compiling the final report..."]
-    });
+    setIsLoading(true); // Keep PlanRefiner buttons disabled
     setError(null);
+    setPlanAnalysis(''); // Reset for streaming
+    setAppStage('PLAN_ANALYSIS');
+
     try {
         const sitePlanFile = dataURLtoFile(sitePlanImageUrl, 'site-plan.png');
-        const analysisResult = await analyzeSitePlan(sitePlanFile, datapoints);
-        setPlanAnalysis(analysisResult);
-        setAppStage('PLAN_ANALYSIS');
+        const analysisStream = analyzeSitePlan(sitePlanFile, datapoints);
+        for await (const chunk of analysisStream) {
+            setPlanAnalysis(prev => prev + chunk);
+        }
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
         setError(`Failed to analyze the site plan. ${errorMessage}`);
         console.error(err);
+        setAppStage('PLAN_REFINEMENT'); // Go back on error
     } finally {
-        setIsLoading(false);
-        setLoadingState(null);
+        setIsLoading(false); // Re-enable PlanRefiner buttons
     }
   }, [sitePlanImageUrl, datapoints]);
 
@@ -806,16 +808,22 @@ const App: React.FC = () => {
                     {appStage === 'BOUNDARY_REVIEW' && (
                         <div className='flex flex-col h-full justify-center items-center text-center gap-6 animate-fade-in'>
                              <h2 className="text-2xl font-bold text-gray-200">Review Site Boundary</h2>
-                             <p className='text-gray-400 max-w-sm'>The AI has detected the site boundary, highlighted in red. Please review it. You can confirm to proceed or refine it if needed.</p>
-                             <div className='flex flex-col sm:flex-row w-full max-w-sm gap-4 mt-4'>
-                                <button onClick={() => setAppStage('BOUNDARY_EDIT')} className='flex-1 flex items-center justify-center gap-2 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20'>
-                                    <PencilIcon className='w-5 h-5' />
-                                    Refine Boundary
-                                </button>
-                                <button onClick={() => setAppStage('PRE_GENERATION_QUERY')} className='flex-1 flex items-center justify-center gap-2 bg-green-600 text-white font-bold py-3 px-4 rounded-md transition-colors hover:bg-green-500'>
+                             <p className='text-gray-400 max-w-sm'>The AI has detected the site boundary, highlighted in red. Please review it. You can confirm to proceed, refine it, or ask the AI to try again.</p>
+                             <div className='flex w-full max-w-md flex-col gap-3 mt-4'>
+                                <button onClick={() => setAppStage('PRE_GENERATION_QUERY')} className='w-full flex items-center justify-center gap-2 bg-green-600 text-white font-bold py-3 px-4 rounded-md transition-colors hover:bg-green-500'>
                                     <CheckIcon className='w-5 h-5' />
                                     Confirm & Continue
                                 </button>
+                                <div className='flex w-full gap-3'>
+                                    <button onClick={handleStartBoundaryDetection} className='flex-1 flex items-center justify-center gap-2 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20'>
+                                        <MagicWandIcon className='w-5 h-5' />
+                                        Retry
+                                    </button>
+                                    <button onClick={() => setAppStage('BOUNDARY_EDIT')} className='flex-1 flex items-center justify-center gap-2 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20'>
+                                        <PencilIcon className='w-5 h-5' />
+                                        Refine
+                                    </button>
+                                </div>
                              </div>
                         </div>
                     )}
@@ -843,11 +851,20 @@ const App: React.FC = () => {
                           isLoading={isLoading}
                        />
                     )}
-                     {appStage === 'PLAN_ANALYSIS' && planAnalysis && (
+                     {appStage === 'PLAN_ANALYSIS' && (
                          <div className='flex flex-col h-full gap-4'>
                              <h2 className="text-2xl font-bold text-gray-200 text-center">Site Plan Analysis</h2>
-                             <div className="bg-black/20 p-4 rounded-lg border border-gray-700/50 overflow-y-auto flex-grow">
-                                <pre className="text-gray-300 text-sm whitespace-pre-wrap font-sans">{planAnalysis}</pre>
+                             <div className="bg-black/20 p-4 rounded-lg border border-gray-700/50 overflow-y-auto flex-grow prose">
+                                {planAnalysis ? (
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {planAnalysis}
+                                    </ReactMarkdown>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center h-full gap-4">
+                                        <Spinner />
+                                        <p className="text-gray-400">AI is analyzing the plan...</p>
+                                    </div>
+                                )}
                              </div>
                              <button onClick={() => setAppStage('PLAN_REFINEMENT')} className='w-full bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20 mt-auto'>
                                  Back to Refinement
