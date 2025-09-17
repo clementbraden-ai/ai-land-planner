@@ -74,12 +74,12 @@ export const detectSiteBoundary = async (surveyImage: File): Promise<string> => 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     
     const surveyImagePart = await fileToPart(surveyImage);
-    const prompt = `You are an expert AI cartographer specializing in interpreting land survey documents. Your task is to accurately extract the primary property boundary from the provided survey image. Follow these steps carefully in your reasoning process before generating the final image.
+    const prompt = `You are an expert AI cartographer specializing in interpreting land survey documents. Your task is to accurately extract the primary property boundary from the provided survey image.
 
 **Chain of Thought Instructions:**
 
 1.  **Analyze the entire survey:** First, examine the image to understand its components. Identify the main drawing area that depicts the property, and distinguish it from title blocks, legends, and notes.
-2.  **Identify Boundary Line Candidates:** Look for lines that define the property's perimeter. The primary boundary line is typically the most prominent, solid, and continuous line enclosing the main parcel. It is often thicker than other lines like easements, setbacks, or contour lines. It will have annotations along its segments, such as distances (e.g., '120.55 ft') and bearings (e.g., 'N 89° E').
+2.  **Identify Boundary Line Candidates:** Look for lines that define the property's perimeter. The primary boundary line is typically the most prominent, solid, and continuous line enclosing the main parcel. It will have annotations along its segments, such as distances (e.g., '120.55 ft') and bearings (e.g., 'N 89° E').
 3.  **Select the Correct Boundary:** From the candidates, select the single, closed polygon that represents the legal property boundary. Ignore internal subdivision lines or other non-boundary features.
 4.  **Trace with Precision:** Mentally trace the selected boundary line from corner to corner. Pay close attention to curves and angles to ensure an exact match.
 5.  **Construct the Final Output:** Based on your precise tracing, generate the output image.
@@ -138,7 +138,7 @@ Your task is to generate a new, corrected site boundary overlay.
 
 Instructions:
 - Analyze the original survey.
-- Focus on the areas highlighted in the mask image.
+- Focus on the human-drawn areas highlighted (4px magenta pencil) in the mask image.
 - Follow the user's text query: "${query}"
 - The output must be a transparent PNG with only a single, clean, red line representing the corrected boundary.
 - The output image dimensions must match the original survey image.
@@ -169,7 +169,7 @@ export const getSurveySummary = async (surveyImage: File): Promise<string> => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     const surveyImagePart = await fileToPart(surveyImage);
     
-    const prompt = `You are a professional land surveyor's assistant. Analyze the provided site survey image. Your task is to extract key information and provide a concise summary. 
+    const prompt = `You are a professional land surveyor's assistant. Analyze the provided site survey image. Your task is to extract key information and provide a concise summary.
 
 **Instructions:**
 1.  Identify the total property size (in acres or square feet).
@@ -180,8 +180,8 @@ export const getSurveySummary = async (surveyImage: File): Promise<string> => {
 **Example Response:**
 ### Site Survey Summary
 Here is a brief analysis of the provided survey:
-*   **Property Size:** Approximately 5.2 acres.
-*   **Key Features:** It's a rectangular lot with a utility easement on the northern boundary.
+*   **Property Size:** 5.21 acres.
+*   **Key Features:** It's a rectangular lot with a 20-foot utility easement on the northern boundary.
 *   **Topography:** The terrain appears to be relatively flat.`;
 
     const textPart = { text: prompt };
@@ -213,7 +213,7 @@ export const getSitePlanDatapoints = async (
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     const surveyImagePart = await fileToPart(surveyImage);
     
-    const prompt = `You are an expert urban planner. You have already analyzed a site survey and provided the following summary: "${summary}". 
+    const prompt = `You are an expert urban planner. You have already analyzed a site survey and provided the following summary: "${summary}".
 
 Now, based on that summary and the user's goals, provide recommended parameters for the site plan.
 
@@ -222,12 +222,12 @@ Now, based on that summary and the user's goals, provide recommended parameters 
 - **Design Priority:** ${priority}
 
 **Your task is twofold:**
-1.  First, provide a reasoning paragraph explaining *why* you are recommending certain parameters. Link your reasoning to the survey summary and the user's goals. **Use Markdown for formatting** (e.g., use bold text for key terms like **lot yield** or **flat terrain**).
+1.  First, provide a reasoning paragraph explaining *why* you are recommending certain parameters. Link your reasoning to the survey summary and the user's goals. **Use Markdown for formatting** (e.g., use bold text for key terms like **lot yield** or **zoning code R-1**).
 2.  After your reasoning paragraph, output the parameters. The output format for the parameters MUST be exactly as follows, starting with "- Coverage Constraints:", with only numbers after each colon.
 
 ---
 EXAMPLE RESPONSE STRUCTURE:
-Based on the **5.2-acre** property size and the goal to **maximize lot yield** for a residential project, I recommend a smaller minimum lot size to increase the number of homes. The **flat terrain** allows for a standard road width, and the utility easement on the northern boundary will be respected by ensuring adequate setbacks.
+Based on the **5.21-acre** property size and the goal to **maximize lot yield** for a residential project, I recommend a smaller minimum lot size. The **flat terrain** allows for a standard road width, and the utility easement on the northern boundary will be respected.
 
 - Coverage Constraints:
     - Maximum buildable coverage (%): 55
@@ -236,7 +236,6 @@ Based on the **5.2-acre** property size and the goal to **maximize lot yield** f
 - Lot Standards:
     - Minimum lot size (sq ft): 4500
     - Minimum lot width (ft): 45
-    - Minimum number of lots: 20
 - Setback Requirements:
     - Front (ft): 20
     - Rear (ft): 20
@@ -291,16 +290,15 @@ export const generateSitePlan = async (
     if (accessPointsImage) {
         const accessPointsPart = await fileToPart(accessPointsImage);
         parts.push(accessPointsPart);
-        accessPointsPrompt = `
-**Road Access Points:** You have been provided a third image with blue circles marking mandatory road access points. The road network you design MUST connect to these points. This is a critical requirement. Crucially, you must preserve these blue circles' positions exactly.`;
+        accessPointsPrompt = `POB(Point Of Beginning)s of road network is blue circles (marking mandatory road access points) in second provided image. The road network MUST connect to these points. This is a critical requirement. Confirm it and redesign road network!`
     }
-
+    
     const prompt = `You are an expert urban planner and architect. Your task is to generate a professional, clear, and detailed site plan.
 You have been provided with:
 - An image showing the exact site boundary polygon (red lines)
 ${accessPointsImage ? "- An image with blue circles marking mandatory road access points.\n" : ""}
-**Primary instruction: All elements of the generated site plan (roads, lots, green spaces, etc.) MUST be located entirely INSIDE the red boundary line shown in the boundary image.** Do not draw anything outside of this boundary.
-${accessPointsPrompt}
+
+Primary instruction: All elements of the generated site plan (roads, lots, green spaces, etc.) MUST be located entirely INSIDE the red boundary line shown in the boundary image.** Do not draw anything outside of this boundary.
 
 User Requirements:
 - Project Purpose: ${purpose}
@@ -319,32 +317,33 @@ Site Plan Constraints (Adhere Strictly):
 - Minimum open space: ${datapoints.minOpenSpace}%
 - Minimum lot size: ${datapoints.minLotSize} sq ft
 - Minimum lot width: ${datapoints.minLotWidth} ft
-- Minimum number of lots: ${datapoints.minNumLots}
 - Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
 - Road width: ${datapoints.roadWidth} ft
 - Sidewalk width: ${datapoints.sidewalkWidth} ft
 
 Instructions:
-1.  Remove other elements except ONLY site boundary polygon (red lines) from provided site boundary image.
-2.  Design a ${networkType} road network ONLY INSIDE site boundary polygon (red lines) while considering lotting.
-3.  Create a top-down, 2D site plan drawing that strictly follows all the Site Plan Constraints listed above.
-4.  The layout must incorporate the specified **${networkType} road network style** and adhere to the **Road Network Refinements**.
-5.  The layout should reflect the user's stated '${purpose}' and '${priority}'.
-6.  Incorporate key features from the survey, such as property lines, building footprints, setbacks, dimensions, and easements.
-7.  The final output must be a clean, high-resolution PNG image of the site plan. Highlight road network (black), green space (green), lots (gray).
+1. Remove other elements except ONLY site boundary polygon (red lines) from provided site boundary image.
+2. Generate a ${networkType}-type road network INSIDE site boundary polygon ONLY while considering lotting.
+3. ${accessPointsPrompt}
+4.  Create a top-down, 2D site plan drawing that strictly follows all the Site Plan Constraints listed above inside site boundary polygon.
+5.  The layout must incorporate the specified **${networkType} road network style** and adhere to the **Road Network Refinements**.
+6.  The layout should reflect the user's stated '${purpose}' and '${priority}'.
+7.  Incorporate key features from the survey, such as property lines, building footprints, setbacks, dimensions, and easements.
+8.  The final output must be a clean, high-resolution PNG image of the site plan. Highlight road network (black), green space (green), lots (gray).
 
 Output: Return ONLY the final site plan image. Do not return text.`;
-
+    
     const textPart = { text: prompt };
+    const textPart1 = {text: "Remove other elements except ONLY site boundary polygon (red lines) from provided site boundary image."}
+    const textPart2 = {text: "Generate a "+networkType+"-type road network INSIDE site boundary polygon ONLY while considering lotting."}
     // FIX: Instead of pushing to `parts` which was inferred as an array of only image parts,
     // create a new array inline during the API call. This allows TypeScript to correctly
     // infer the union type for the array contents (image parts and text parts).
 
-
     console.log('Sending survey image and prompt to the model...');
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image-preview',
-        contents: { parts: [...parts, textPart] },
+        contents: { parts: [...parts, textPart1, textPart2, textPart] },
         config: {
             responseModalities: [Modality.IMAGE, Modality.TEXT],
         },
@@ -375,7 +374,6 @@ export const updateDatapointsFromQuery = async (
             minOpenSpace: { type: Type.NUMBER },
             minLotSize: { type: Type.NUMBER },
             minLotWidth: { type: Type.NUMBER },
-            minNumLots: { type: Type.NUMBER },
             frontSetback: { type: Type.NUMBER },
             rearSetback: { type: Type.NUMBER },
             sideSetback: { type: Type.NUMBER },
@@ -384,7 +382,7 @@ export const updateDatapointsFromQuery = async (
         },
         required: [
             "maxBuildableCoverage", "minGreenCoverage", "minOpenSpace",
-            "minLotSize", "minLotWidth", "minNumLots", "frontSetback",
+            "minLotSize", "minLotWidth", "frontSetback",
             "rearSetback", "sideSetback", "roadWidth", "sidewalkWidth"
         ]
     };
@@ -394,7 +392,7 @@ export const updateDatapointsFromQuery = async (
 - Current Parameters: ${JSON.stringify(currentDatapoints, null, 2)}
 
 Instructions:
-1. Read the user's query to identify any requests to change specific parameters. For example, "make the lots bigger" implies increasing 'minLotSize'. "I need 50 lots" implies setting 'minNumLots' to 50.
+1. Read the user's query to identify any requests to change specific parameters. For example, "make the lots bigger" implies increasing 'minLotSize'. "increase side setbacks to 15 feet" implies setting 'sideSetback' to 15.
 2. If a parameter is explicitly mentioned or clearly implied in the query, update its value in the JSON object.
 3. For any parameter NOT mentioned in the query, you MUST keep its original value from the "Current Parameters".
 4. Return the complete, updated JSON object. The structure of your response must exactly match the provided schema. Do not return any other text or explanations.`;
@@ -465,7 +463,6 @@ Updated Constraints (Adhere Strictly):
 - Minimum open space: ${datapoints.minOpenSpace}%
 - Minimum lot size: ${datapoints.minLotSize} sq ft
 - Minimum lot width: ${datapoints.minLotWidth} ft
-- Minimum number of lots: ${datapoints.minNumLots}
 - Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
 - Road width: ${datapoints.roadWidth} ft
 - Sidewalk width: ${datapoints.sidewalkWidth} ft
@@ -514,7 +511,6 @@ Site Plan Constraints Provided to the Generator:
 - Minimum open space: ${datapoints.minOpenSpace}%
 - Minimum lot size: ${datapoints.minLotSize} sq ft
 - Minimum lot width: ${datapoints.minLotWidth} ft
-- Minimum number of lots: ${datapoints.minNumLots}
 - Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
 - Road width: ${datapoints.roadWidth} ft
 - Sidewalk width: ${datapoints.sidewalkWidth} ft
@@ -539,4 +535,109 @@ Format your response using Markdown. Use headings (e.g., \`## Constraint Complia
     }
 
     console.log('Finished streaming site plan analysis.');
+};
+
+/**
+ * Generates suggestions for how to refine a site boundary.
+ * @param surveyImage The original site survey image.
+ * @param boundaryImage The current boundary overlay image.
+ * @returns A promise that resolves to an array of 3 string suggestions.
+ */
+export const getBoundaryRefinementSuggestions = async (
+    surveyImage: File,
+    boundaryImage: File,
+): Promise<string[]> => {
+    console.log('Getting boundary refinement suggestions...');
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+
+    const surveyPart = await fileToPart(surveyImage);
+    const boundaryPart = await fileToPart(boundaryImage);
+    const prompt = `You are an AI assistant for a land surveyor. You are given a site survey and a detected boundary overlay (in red).
+Your task is to identify potential inaccuracies in the red boundary line when compared to the official survey drawing.
+The user will be using a drawing tool with a magenta pencil to mark the area needing correction on a digital canvas.
+Based on your analysis, provide 3 short, actionable text queries the user could write to accompany their drawing. These queries should instruct the editing AI on how to fix the boundary in the marked area. The queries should be concise and direct.
+The queries should be phrased as commands to an image editing AI.
+
+Return a JSON array of exactly 3 strings.
+
+Example response:
+["Extend the boundary to include the northernmost corner as shown on the survey.", "The western side should be a smooth curve, not a straight line.", "Remove the small triangular section on the bottom right that is outside the property line."]`
+
+    const textPart = { text: prompt };
+
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts: [surveyPart, boundaryPart, textPart] },
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+            }
+        },
+    });
+
+    console.log('Received boundary suggestions from model.');
+    const resultJson = JSON.parse(response.text);
+    return resultJson as string[];
+};
+
+/**
+ * Generates suggestions for how to refine a site plan.
+ * @param planImage The current site plan image.
+ * @param datapoints The datapoints used to generate the plan.
+ * @param purpose The purpose of the project (e.g., "Commercial").
+ * @param priority The main design priority (e.g., "Maximize Lot Yield").
+ * @returns A promise that resolves to an array of 3 string suggestions.
+ */
+export const getPlanRefinementSuggestions = async (
+    planImage: File,
+    datapoints: SiteDatapoints,
+    purpose: string,
+    priority: string,
+): Promise<string[]> => {
+    console.log('Getting plan refinement suggestions...');
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+
+    const planPart = await fileToPart(planImage);
+    const prompt = `You are an expert AI urban planner. Your task is to analyze a site plan and provide 3 creative, actionable suggestions for improvement.
+
+**Analysis Context:**
+1.  **Site Plan Image:** You will be given an image of the current site plan.
+2.  **User Goals:** The user's high-level goals are:
+    - **Project Purpose:** "${purpose}"
+    - **Design Priority:** "${priority}"
+3.  **Constraints:** The plan must adhere to these parameters: ${JSON.stringify(datapoints)}
+
+**Your Instructions:**
+1.  **Analyze the Image:** Carefully review the site plan layout, including roads, lots, and open spaces.
+2.  **Align with Goals:** Generate suggestions that directly support the user's stated **Purpose** and **Priority**.
+    - If Priority is "Maximize Lot Yield", focus on efficiency, density, and lot configuration.
+    - If Purpose is "Residential" and Priority is "Balanced Layout", suggest community-oriented features like parks or improved traffic flow.
+    - If Purpose is "Commercial", suggest improvements for access, parking, or customer experience.
+3.  **Focus on Actionable Changes:** Your suggestions must be phrased as direct, actionable commands for an AI. They should describe **structural or visual changes** (e.g., adding features, reconfiguring roads) rather than simple parameter adjustments (e.g., "increase lot size").
+
+**Output Requirements:**
+- Return a JSON array containing exactly 3 distinct string suggestions.
+
+**Example (for a "Residential" / "Balanced Layout" project):**
+["Consolidate the green space into a central community park.", "Add a cul-de-sac at the end of the northernmost road to improve safety.", "Connect the two dead-end streets on the west side to create a loop."]`
+
+    const textPart = { text: prompt };
+    
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts: [planPart, textPart] },
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+            }
+        },
+    });
+    
+    console.log('Received plan suggestions from model.');
+    const resultJson = JSON.parse(response.text);
+    return resultJson as string[];
 };

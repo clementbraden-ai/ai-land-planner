@@ -6,7 +6,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { generateSitePlan, getSitePlanDatapoints, detectSiteBoundary, refineSiteBoundary, analyzeSitePlan, refineSitePlan, getSurveySummary, updateDatapointsFromQuery } from './services/geminiService';
+import { generateSitePlan, getSitePlanDatapoints, detectSiteBoundary, refineSiteBoundary, analyzeSitePlan, refineSitePlan, getSurveySummary, updateDatapointsFromQuery, getBoundaryRefinementSuggestions, getPlanRefinementSuggestions } from './services/geminiService';
 import { SiteDatapoints } from './types';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
@@ -146,6 +146,19 @@ interface LoadingState {
 
 const SAVE_STATE_KEY = 'smartLandPlannerState';
 
+const INITIAL_BOUNDARY_SUGGESTIONS = [
+    "Extend the boundary to the property line shown on the survey.",
+    "The boundary is incorrect on the west side; it should follow the creek.",
+    "Remove the small section that is outside the main property."
+];
+
+const INITIAL_PLAN_SUGGESTIONS = [
+    "Consolidate the green space into a central community park with a playground.",
+    "Reconfigure the lots on the west side to be deeper and less wide.",
+    "Add a cul-de-sac at the end of the top-most road to improve safety."
+];
+
+
 const App: React.FC = () => {
   const [appStage, setAppStage] = useState<AppStage>('UPLOAD');
   const [surveyPdf, setSurveyPdf] = useState<File | null>(null);
@@ -171,6 +184,12 @@ const App: React.FC = () => {
   const [isBotThinking, setIsBotThinking] = useState<boolean>(false);
   const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(false);
   
+  // Suggestion State
+  const [boundarySuggestions, setBoundarySuggestions] = useState<string[]>(INITIAL_BOUNDARY_SUGGESTIONS);
+  const [isFetchingBoundarySuggestions, setIsFetchingBoundarySuggestions] = useState<boolean>(false);
+  const [planSuggestions, setPlanSuggestions] = useState<string[]>(INITIAL_PLAN_SUGGESTIONS);
+  const [isFetchingPlanSuggestions, setIsFetchingPlanSuggestions] = useState<boolean>(false);
+
   // State for session persistence
   const [isStateLoaded, setIsStateLoaded] = useState(false);
 
@@ -242,6 +261,7 @@ const App: React.FC = () => {
   ]);
 
   const handleUploadNew = useCallback(() => {
+    // Reset all data state
     setSurveyPdf(null);
     setSurveyImageUrl(null);
     setBoundaryImageUrl(null);
@@ -249,13 +269,24 @@ const App: React.FC = () => {
     setSitePlanImageUrl(null);
     setPlanOptions({});
     setPlanAnalysis(null);
-    setError(null);
+    setDatapoints(null);
+    setSurveySummary(null);
+
+    // Reset all chat/interaction state
     setMessages([]);
     setProjectPurpose(null);
     setDesignPriority(null);
     setAiRecommendations(null);
-    setDatapoints(null);
-    setSurveySummary(null);
+    
+    // Reset all loading and error states for a clean start
+    setError(null);
+    setIsLoading(false);
+    setLoadingState(null);
+    setIsGeneratingPlans(false);
+    setIsBotThinking(false);
+    setIsSummaryLoading(false);
+
+    // Go back to the initial stage
     setAppStage('UPLOAD');
   }, []);
 
@@ -328,7 +359,7 @@ const App: React.FC = () => {
       setTimeout(() => setMessages([initialSummaryMessage]), 500); // Small delay for effect
     }
   }, [surveySummary, messages, appStage]);
-
+  
   useEffect(() => {
     if (loadingState && loadingState.messages.length > 0) {
       let messageIndex = 0;
@@ -351,11 +382,11 @@ const App: React.FC = () => {
         messages: ["Reading the file...", "Converting to high-resolution image...", "Preparing the workspace..."]
       });
       try {
-          // Step 1: Convert PDF to PNG
           const arrayBuffer = await file.arrayBuffer();
           const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
           const page = await pdf.getPage(1); // Get the first page
 
+          // Convert PDF to PNG
           // Dynamically calculate scale to cap the longest dimension and use JPEG
           // to prevent overly large images from exceeding localStorage quota.
           const baseViewport = page.getViewport({ scale: 1.0 });
@@ -408,7 +439,6 @@ const App: React.FC = () => {
         minOpenSpace: 15,
         minLotSize: 5000,
         minLotWidth: 50,
-        minNumLots: 5,
         frontSetback: 20,
         rearSetback: 20,
         sideSetback: 10,
@@ -427,7 +457,6 @@ const App: React.FC = () => {
         minOpenSpace: extractValue(/Minimum open space \(%\)[\s:]*(\d+\.?\d*)/i) ?? defaults.minOpenSpace,
         minLotSize: extractValue(/Minimum lot size \(sq ft\)[\s:]*(\d+\.?\d*)/i) ?? defaults.minLotSize,
         minLotWidth: extractValue(/Minimum lot width \(ft\)[\s:]*(\d+\.?\d*)/i) ?? defaults.minLotWidth,
-        minNumLots: extractValue(/Minimum number of lots[\s:]*(\d+)/i) ?? defaults.minNumLots,
         frontSetback: extractValue(/Front \(ft\)[\s:]*(\d+\.?\d*)/i) ?? defaults.frontSetback,
         rearSetback: extractValue(/Rear \(ft\)[\s:]*(\d+\.?\d*)/i) ?? defaults.rearSetback,
         sideSetback: extractValue(/Side \(ft\)[\s:]*(\d+\.?\d*)/i) ?? defaults.sideSetback,
@@ -540,6 +569,20 @@ const App: React.FC = () => {
         const refinedBoundaryUrl = await refineSiteBoundary(surveyImageFile, boundaryImageFile, maskFile, query);
         setBoundaryImageUrl(refinedBoundaryUrl);
         setAppStage('BOUNDARY_REVIEW');
+        
+        // Fetch new suggestions for the next time the user edits
+        setIsFetchingBoundarySuggestions(true);
+        try {
+            const newBoundaryFile = dataURLtoFile(refinedBoundaryUrl, 'boundary.png');
+            const newSuggestions = await getBoundaryRefinementSuggestions(surveyImageFile, newBoundaryFile);
+            setBoundarySuggestions(newSuggestions);
+        } catch (err) {
+            console.error("Failed to fetch new boundary suggestions:", err);
+            setBoundarySuggestions(INITIAL_BOUNDARY_SUGGESTIONS); // Revert on failure
+        } finally {
+            setIsFetchingBoundarySuggestions(false);
+        }
+
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
         setError(`Failed to refine boundary. ${errorMessage}`);
@@ -607,12 +650,13 @@ const App: React.FC = () => {
 
   const handleSelectPlanOption = useCallback((imageUrl: string) => {
     setSitePlanImageUrl(imageUrl);
+    setPlanSuggestions(INITIAL_PLAN_SUGGESTIONS); // Reset to initial suggestions for the new plan
     setAppStage('PLAN_REFINEMENT');
   }, []);
 
   const handleRefineSitePlan = useCallback(async (query: string, datapointsFromForm: SiteDatapoints) => {
-    if (!sitePlanImageUrl || !surveyImageUrl) {
-        setError('Cannot refine plan without an active plan and survey image.');
+    if (!sitePlanImageUrl || !surveyImageUrl || !projectPurpose || !designPriority) {
+        setError('Cannot refine plan without an active plan and project goals.');
         return;
     }
     setIsLoading(true);
@@ -635,6 +679,20 @@ const App: React.FC = () => {
         }
         const refinedUrl = await refineSitePlan(planFile, surveyFile, query, newDatapoints, accessPointsFile);
         setSitePlanImageUrl(refinedUrl);
+
+        // Step 3: Fetch new suggestions based on the refined plan
+        setIsFetchingPlanSuggestions(true);
+        try {
+            const newPlanFile = dataURLtoFile(refinedUrl, 'plan.png');
+            const newSuggestions = await getPlanRefinementSuggestions(newPlanFile, newDatapoints, projectPurpose, designPriority);
+            setPlanSuggestions(newSuggestions);
+        } catch (err) {
+            console.error("Failed to fetch new plan suggestions:", err);
+            setPlanSuggestions(INITIAL_PLAN_SUGGESTIONS); // Revert on failure
+        } finally {
+            setIsFetchingPlanSuggestions(false);
+        }
+
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
         setError(`Failed to refine site plan. ${errorMessage}`);
@@ -643,7 +701,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingState(null);
     }
-  }, [sitePlanImageUrl, surveyImageUrl, accessPointsImageUrl]);
+  }, [sitePlanImageUrl, surveyImageUrl, accessPointsImageUrl, projectPurpose, designPriority]);
 
   const handleAnalyzeSitePlan = useCallback(async () => {
     if (!sitePlanImageUrl || !datapoints) {
@@ -719,6 +777,8 @@ const App: React.FC = () => {
                 boundaryImageUrl={boundaryImageUrl}
                 onRefine={handleRefineBoundary}
                 onBack={handleBack}
+                suggestions={boundarySuggestions}
+                isSuggestionsLoading={isFetchingBoundarySuggestions}
              />
         );
     }
@@ -827,7 +887,7 @@ const App: React.FC = () => {
                                         <MagicWandIcon className='w-5 h-5' />
                                         Retry
                                     </button>
-                                    <button onClick={() => setAppStage('BOUNDARY_EDIT')} className='flex-1 flex items-center justify-center gap-2 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20'>
+                                    <button onClick={() => { setBoundarySuggestions(INITIAL_BOUNDARY_SUGGESTIONS); setAppStage('BOUNDARY_EDIT'); }} className='flex-1 flex items-center justify-center gap-2 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20'>
                                         <PencilIcon className='w-5 h-5' />
                                         Refine
                                     </button>
@@ -857,6 +917,8 @@ const App: React.FC = () => {
                           onRefine={handleRefineSitePlan}
                           onAnalyze={handleAnalyzeSitePlan}
                           isLoading={isLoading}
+                          suggestions={planSuggestions}
+                          isSuggestionsLoading={isFetchingPlanSuggestions}
                        />
                     )}
                      {appStage === 'PLAN_ANALYSIS' && (
@@ -887,7 +949,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen text-gray-200 bg-transparent">
-      <Header onBack={handleBack} appStage={appStage} />
+      <Header onBack={handleBack} onGoHome={handleUploadNew} appStage={appStage} />
       <main className="p-4 sm:p-8 flex flex-col items-center justify-center flex-grow" style={{ minHeight: 'calc(100vh - 73px)'}}>
           {isStateLoaded && renderContent()}
       </main>

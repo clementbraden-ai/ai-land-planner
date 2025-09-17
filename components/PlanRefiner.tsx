@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { SiteDatapoints } from '../types';
 import DatapointsForm from './DatapointsForm';
 import { MagicWandIcon, SearchIcon, LightBulbIcon } from './icons';
+import Spinner from './Spinner';
 
 interface PlanRefinerProps {
   initialDatapoints: SiteDatapoints;
@@ -14,9 +15,11 @@ interface PlanRefinerProps {
   onRefine: (query: string, datapoints: SiteDatapoints) => void;
   onAnalyze: () => void;
   isLoading: boolean;
+  suggestions: string[];
+  isSuggestionsLoading: boolean;
 }
 
-const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapointsChange, onRefine, onAnalyze, isLoading }) => {
+const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapointsChange, onRefine, onAnalyze, isLoading, suggestions, isSuggestionsLoading }) => {
     const [query, setQuery] = useState('');
     
     const handleRefineClick = () => {
@@ -27,12 +30,6 @@ const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapoin
         onRefine(query, initialDatapoints);
         setQuery(''); // Clear query after submitting
     };
-    
-    const suggestions = [
-        "Add more green space and a central park.",
-        "Increase the lot density on the northern side.",
-        "Can you create a cul-de-sac on the east side?"
-    ];
 
     return (
         <div className="flex flex-col h-full gap-4">
@@ -49,16 +46,24 @@ const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapoin
                         </div>
                     </div>
                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-9">
-                        {suggestions.map((suggestion, index) => (
-                            <button 
-                                key={index} 
-                                onClick={() => setQuery(suggestion)}
-                                disabled={isLoading}
-                                className="text-left text-xs bg-white/5 text-gray-300 font-medium py-2 px-3 rounded-md transition-colors hover:bg-white/10 active:scale-95 disabled:opacity-50"
-                            >
-                                {suggestion}
-                            </button>
-                        ))}
+                        {isSuggestionsLoading ? (
+                            <div className="col-span-3 flex items-center justify-center p-2">
+                                <Spinner className="w-5 h-5" />
+                                <span className="ml-2 text-sm text-gray-400">Generating suggestions...</span>
+                            </div>
+                        ) : (
+                            (suggestions.length > 0 ? suggestions : Array(3).fill(''))
+                            .map((suggestion, index) => (
+                                <button 
+                                    key={index} 
+                                    onClick={() => suggestion && setQuery(suggestion)}
+                                    disabled={isLoading || !suggestion}
+                                    className="text-left text-xs bg-white/5 text-gray-300 font-medium py-2 px-3 rounded-md transition-colors hover:bg-white/10 active:scale-95 disabled:opacity-50 h-12 disabled:cursor-not-allowed"
+                                >
+                                     {suggestion || <span className="text-gray-500">No suggestion available.</span>}
+                                </button>
+                            ))
+                        )}
                     </div>
                 </div>
 

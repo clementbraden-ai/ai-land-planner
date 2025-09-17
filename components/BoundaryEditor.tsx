@@ -5,7 +5,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { dataURLtoFile } from '../App';
-import { PencilIcon, UploadIcon, LineIcon, EyeIcon, UndoIcon, RedoIcon } from './icons';
+import { PencilIcon, UploadIcon, LineIcon, EyeIcon, UndoIcon, RedoIcon, LightBulbIcon } from './icons';
 import Spinner from './Spinner';
 
 interface BoundaryEditorProps {
@@ -13,6 +13,8 @@ interface BoundaryEditorProps {
   boundaryImageUrl: string;
   onRefine: (maskFile: File, query: string) => Promise<void>;
   onBack: () => void;
+  suggestions: string[];
+  isSuggestionsLoading: boolean;
 }
 
 type Point = { x: number; y: number };
@@ -29,7 +31,7 @@ const LayerToggle: React.FC<{ label: string; checked: boolean; onChange: () => v
 );
 
 
-const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, boundaryImageUrl, onRefine, onBack }) => {
+const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, boundaryImageUrl, onRefine, onBack, suggestions, isSuggestionsLoading }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawing = useRef(false);
   const hasDrawn = useRef(false);
@@ -296,6 +298,37 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, boundar
             <img src={surveyImageUrl} alt="Site Survey" className={`w-full h-auto object-contain transition-opacity duration-300 ${layers.survey ? 'opacity-100' : 'opacity-0'}`} />
             <img src={boundaryImageUrl} alt="Current Site Boundary" className={`absolute top-0 left-0 w-full h-full object-contain pointer-events-none transition-opacity duration-300 ${layers.boundary ? 'opacity-100' : 'opacity-0'}`} />
             <canvas ref={canvasRef} className={`absolute top-0 left-0 w-full h-full cursor-crosshair z-10 transition-opacity duration-300 ${layers.drawing ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} />
+        </div>
+        
+        <div className="space-y-2">
+            <div className="flex items-start gap-2">
+                <div className="w-7 h-7 mt-1 flex-shrink-0 bg-blue-500/20 rounded-full flex items-center justify-center">
+                    <LightBulbIcon className="w-4 h-4 text-blue-300" />
+                </div>
+                <div className="rounded-lg px-3 py-2 bg-gray-700/30">
+                    <p className="text-sm text-gray-300">Need an idea? Try an AI-generated suggestion to refine your boundary.</p>
+                </div>
+            </div>
+             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-9">
+                {isSuggestionsLoading ? (
+                    <div className="col-span-3 flex items-center justify-center p-2">
+                        <Spinner className="w-5 h-5" />
+                        <span className="ml-2 text-sm text-gray-400">Generating suggestions...</span>
+                    </div>
+                ) : (
+                    (suggestions.length > 0 ? suggestions : Array(3).fill(''))
+                    .map((suggestion, index) => (
+                        <button 
+                            key={index} 
+                            onClick={() => suggestion && setQuery(suggestion)}
+                            disabled={isUpdating || !suggestion}
+                            className="text-left text-xs bg-white/5 text-gray-300 font-medium py-2 px-3 rounded-md transition-colors hover:bg-white/10 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed h-12"
+                        >
+                            {suggestion || <span className="text-gray-500">No suggestion available.</span>}
+                        </button>
+                    ))
+                )}
+            </div>
         </div>
 
         <div className="w-full bg-gray-800/50 border border-gray-700 rounded-lg p-4 flex flex-col gap-4 backdrop-blur-sm">
