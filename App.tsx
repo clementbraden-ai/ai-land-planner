@@ -6,7 +6,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { generateSitePlan, getSitePlanDatapoints, detectSiteBoundary, refineSiteBoundary, analyzeSitePlan, refineSitePlan, getSurveySummary, updateDatapointsFromQuery, getBoundaryRefinementSuggestions, getPlanRefinementSuggestions } from './services/geminiService';
+import { generateSitePlan, getSitePlanDatapoints, detectSiteBoundary, refineSiteBoundary, analyzeSitePlan, refineSitePlan, getSurveySummary, updateDatapointsFromQuery, getBoundaryRefinementSuggestions, getPlanRefinementSuggestions, getSiteArea } from './services/geminiService';
 import { SiteDatapoints } from './types';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
@@ -16,6 +16,7 @@ import BoundaryEditor from './components/BoundaryEditor';
 import AccessPointEditor from './components/AccessPointEditor';
 import PlanOptions from './components/PlanOptions';
 import PlanRefiner from './components/PlanRefiner';
+import SitePlanEditor from './components/SitePlanEditor';
 import { UploadIcon, MagicWandIcon, RobotIcon, CheckIcon, PencilIcon } from './components/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -48,7 +49,7 @@ interface ChatMessage {
   options?: string[];
 }
 
-type AppStage = 'UPLOAD' | 'ANALYSIS' | 'BOUNDARY_REVIEW' | 'BOUNDARY_EDIT' | 'PRE_GENERATION_QUERY' | 'ACCESS_POINTS' | 'PLAN_OPTIONS' | 'PLAN_REFINEMENT' | 'PLAN_ANALYSIS';
+type AppStage = 'UPLOAD' | 'ANALYSIS' | 'BOUNDARY_REVIEW' | 'BOUNDARY_EDIT' | 'PRE_GENERATION_QUERY' | 'ACCESS_POINTS' | 'PLAN_OPTIONS' | 'PLAN_REFINEMENT' | 'PLAN_EDIT' | 'PLAN_ANALYSIS';
 
 interface SiteAnalysisChatProps {
     messages: ChatMessage[];
@@ -310,6 +311,9 @@ const App: React.FC = () => {
         case 'PLAN_OPTIONS':
             setAppStage('PRE_GENERATION_QUERY');
             break;
+        case 'PLAN_EDIT':
+            setAppStage('PLAN_REFINEMENT');
+            break;
         case 'PLAN_REFINEMENT':
             setSitePlanImageUrl(null);
             setPlanAnalysis(null);
@@ -468,11 +472,12 @@ const App: React.FC = () => {
   const handleOptionSelect = useCallback((option: string, question: 'purpose' | 'priority') => {
       const userMessage: ChatMessage = { id: Date.now(), sender: 'user', text: option };
       
-      setMessages(prev => {
-        const updated = [...prev];
-        updated[updated.length - 1].options = undefined;
-        return [...updated, userMessage];
-      });
+      const messagesForApi = [...messages];
+      if (messagesForApi.length > 0) {
+        messagesForApi[messagesForApi.length - 1].options = undefined;
+      }
+      messagesForApi.push(userMessage);
+      setMessages(messagesForApi);
 
       setTimeout(async () => {
         if (question === 'purpose') {
@@ -491,9 +496,8 @@ const App: React.FC = () => {
             setIsBotThinking(true);
             
             try {
-                if (!surveyImageUrl || !projectPurpose || !surveySummary) throw new Error("Missing survey image, project purpose, or summary.");
-                const surveyImageFile = dataURLtoFile(surveyImageUrl, 'survey.png');
-                const recommendationsResponse = await getSitePlanDatapoints(surveyImageFile, projectPurpose, option, surveySummary);
+                const surveyImageFile = dataURLtoFile(surveyImageUrl!, 'survey.png');
+                const recommendationsResponse = await getSitePlanDatapoints(messagesForApi, surveyImageFile);
                 
                 const dataPointsMarker = "- Coverage Constraints:";
                 const markerIndex = recommendationsResponse.indexOf(dataPointsMarker);
@@ -528,7 +532,7 @@ const App: React.FC = () => {
             }
         }
       }, 800);
-    }, [surveyImageUrl, projectPurpose, surveySummary]);
+    }, [messages, surveyImageUrl]);
 
   const handleStartBoundaryDetection = useCallback(async () => {
     if (!surveyImageUrl) {
@@ -573,8 +577,7 @@ const App: React.FC = () => {
         // Fetch new suggestions for the next time the user edits
         setIsFetchingBoundarySuggestions(true);
         try {
-            const newBoundaryFile = dataURLtoFile(refinedBoundaryUrl, 'boundary.png');
-            const newSuggestions = await getBoundaryRefinementSuggestions(surveyImageFile, newBoundaryFile);
+            const newSuggestions = await getBoundaryRefinementSuggestions(messages, surveyImageFile);
             setBoundarySuggestions(newSuggestions);
         } catch (err) {
             console.error("Failed to fetch new boundary suggestions:", err);
@@ -590,7 +593,7 @@ const App: React.FC = () => {
         // Re-throw the error so the editor knows the operation failed
         throw err;
     }
-  }, [surveyImageUrl, boundaryImageUrl]);
+  }, [surveyImageUrl, boundaryImageUrl, messages]);
 
   const handleGeneratePlanOptions = useCallback(async (accessPointsFile: File | null) => {
     if (!surveyImageUrl || !boundaryImageUrl || !projectPurpose || !designPriority || !datapoints) {
@@ -606,6 +609,8 @@ const App: React.FC = () => {
         { name: 'Radial', description: 'Roads spread out from a central point, often creating a focal point.' },
         { name: 'Circular', description: 'Features roads that form loops or circles, good for traffic calming.' },
         { name: 'Hierarchical', description: 'A mix of major arterial roads and smaller local streets for efficient traffic flow.' },
+        { name: 'Organic', description: 'A flowing, curvilinear layout that follows natural contours, creating a scenic feel.' },
+        { name: 'Cul-de-sac', description: 'Prioritizes dead-end streets to maximize privacy and safety by eliminating through-traffic.' },
     ];
     
     const placeholders = Object.fromEntries(networkTypes.map(nt => [nt.name, { url: null, description: nt.description }]));
@@ -615,9 +620,32 @@ const App: React.FC = () => {
         const surveyImageFile = dataURLtoFile(surveyImageUrl, 'survey.png');
         const boundaryImageFile = dataURLtoFile(boundaryImageUrl, 'boundary.png');
         
+        // Calculate site area and max lots for accuracy
+        console.log("Calculating site area for lot estimation...");
+        const { area, unit } = await getSiteArea(surveyImageFile, boundaryImageFile);
+        console.log(`Site area detected: ${area} ${unit}`);
+
+        let totalAreaSqFt = area;
+        if (unit === 'acre') {
+            totalAreaSqFt = area * 43560;
+        } else if (unit === 'hectare') {
+            totalAreaSqFt = area * 107639;
+        }
+        console.log(`Total area in sq ft: ${totalAreaSqFt.toFixed(0)}`);
+
+        const maxLotsFromBuildable = (datapoints.maxBuildableCoverage / 100) * totalAreaSqFt / datapoints.minLotSize;
+        const maxLotsFromOpenSpace = totalAreaSqFt * (1 - (datapoints.minGreenCoverage / 100) - (datapoints.minOpenSpace / 100)) / datapoints.minLotSize;
+
+        const maxLots = Math.floor(Math.min(maxLotsFromBuildable, maxLotsFromOpenSpace));
+        // Set a reasonable minimum, e.g., 70% of the max, but at least 1.
+        const minLots = Math.max(1, Math.floor(maxLots * 0.7)); 
+
+        const lotCountRange = { min: minLots, max: maxLots };
+        console.log(`Calculated lot count range for generation: ${minLots} - ${maxLots}`);
+        
         for (const type of networkTypes) {
             try {
-                const url = await generateSitePlan(surveyImageFile, boundaryImageFile, accessPointsFile, projectPurpose!, designPriority!, datapoints, type.name);
+                const url = await generateSitePlan(surveyImageFile, boundaryImageFile, accessPointsFile, projectPurpose!, designPriority!, datapoints, type.name, lotCountRange);
                 setPlanOptions(prev => ({
                     ...prev,
                     [type.name]: { ...prev[type.name], url }
@@ -677,14 +705,13 @@ const App: React.FC = () => {
         if (accessPointsImageUrl) {
             accessPointsFile = dataURLtoFile(accessPointsImageUrl, 'access-points.png');
         }
-        const refinedUrl = await refineSitePlan(planFile, surveyFile, query, newDatapoints, accessPointsFile);
+        const refinedUrl = await refineSitePlan(planFile, surveyFile, query, newDatapoints, accessPointsFile, null);
         setSitePlanImageUrl(refinedUrl);
 
         // Step 3: Fetch new suggestions based on the refined plan
         setIsFetchingPlanSuggestions(true);
         try {
-            const newPlanFile = dataURLtoFile(refinedUrl, 'plan.png');
-            const newSuggestions = await getPlanRefinementSuggestions(newPlanFile, newDatapoints, projectPurpose, designPriority);
+            const newSuggestions = await getPlanRefinementSuggestions(messages, planFile);
             setPlanSuggestions(newSuggestions);
         } catch (err) {
             console.error("Failed to fetch new plan suggestions:", err);
@@ -701,7 +728,46 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingState(null);
     }
-  }, [sitePlanImageUrl, surveyImageUrl, accessPointsImageUrl, projectPurpose, designPriority]);
+  }, [sitePlanImageUrl, surveyImageUrl, accessPointsImageUrl, projectPurpose, designPriority, messages]);
+
+  const handleVisualRefineSitePlan = useCallback(async (maskFile: File, query: string): Promise<void> => {
+    if (!sitePlanImageUrl || !surveyImageUrl || !datapoints) {
+        setError('Required information is missing for visual refinement.');
+        return;
+    }
+    // No full-screen loader, editor will show its own
+    setError(null);
+    try {
+        const planFile = dataURLtoFile(sitePlanImageUrl, 'plan.png');
+        const surveyFile = dataURLtoFile(surveyImageUrl, 'survey.png');
+        let accessPointsFile: File | null = null;
+        if (accessPointsImageUrl) {
+            accessPointsFile = dataURLtoFile(accessPointsImageUrl, 'access-points.png');
+        }
+
+        // Call the updated refineSitePlan function with the mask
+        const refinedUrl = await refineSitePlan(planFile, surveyFile, query, datapoints, accessPointsFile, maskFile);
+        setSitePlanImageUrl(refinedUrl);
+        setAppStage('PLAN_REFINEMENT'); // Go back to refinement view
+
+        // Optional: Fetch new suggestions after visual edit. Let's do it for consistency.
+        setIsFetchingPlanSuggestions(true);
+        try {
+            const newSuggestions = await getPlanRefinementSuggestions(messages, dataURLtoFile(refinedUrl, 'plan.png'));
+            setPlanSuggestions(newSuggestions);
+        } catch (err) {
+            console.error("Failed to fetch new plan suggestions after visual edit:", err);
+            setPlanSuggestions(INITIAL_PLAN_SUGGESTIONS); // Revert on failure
+        } finally {
+            setIsFetchingPlanSuggestions(false);
+        }
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        setError(`Failed to refine plan visually. ${errorMessage}`);
+        console.error(err);
+        throw err; // Re-throw for editor to handle
+    }
+  }, [sitePlanImageUrl, surveyImageUrl, accessPointsImageUrl, datapoints, messages]);
 
   const handleAnalyzeSitePlan = useCallback(async () => {
     if (!sitePlanImageUrl || !datapoints) {
@@ -802,6 +868,16 @@ const App: React.FC = () => {
             isLoading={isGeneratingPlans}
             onBack={handleBack}
         />;
+    }
+
+    if (appStage === 'PLAN_EDIT' && sitePlanImageUrl) {
+        return (
+            <SitePlanEditor
+                sitePlanImageUrl={sitePlanImageUrl}
+                onRefine={handleVisualRefineSitePlan}
+                onBack={handleBack}
+            />
+        );
     }
 
     return (
@@ -916,6 +992,7 @@ const App: React.FC = () => {
                           onDatapointsChange={setDatapoints}
                           onRefine={handleRefineSitePlan}
                           onAnalyze={handleAnalyzeSitePlan}
+                          onStartEdit={() => setAppStage('PLAN_EDIT')}
                           isLoading={isLoading}
                           suggestions={planSuggestions}
                           isSuggestionsLoading={isFetchingPlanSuggestions}

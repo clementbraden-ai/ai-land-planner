@@ -6,6 +6,17 @@
 import { GoogleGenAI, GenerateContentResponse, Modality, Type } from "@google/genai";
 import { SiteDatapoints } from "../types";
 
+interface ChatMessageForPrompt {
+  sender: 'bot' | 'user';
+  text: string;
+}
+
+// Helper function to format chat history for the AI prompt
+const formatChatHistory = (chatHistory: ChatMessageForPrompt[]): string => {
+    return chatHistory.map(msg => `${msg.sender.toUpperCase()}: ${msg.text}`).join('\n\n');
+};
+
+
 // Helper function to convert a File object to a Gemini API Part
 const fileToPart = async (file: File): Promise<{ inlineData: { mimeType: string; data: string; } }> => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -74,23 +85,24 @@ export const detectSiteBoundary = async (surveyImage: File): Promise<string> => 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     
     const surveyImagePart = await fileToPart(surveyImage);
-    const prompt = `You are an expert AI cartographer specializing in interpreting land survey documents. Your task is to accurately extract the primary property boundary from the provided survey image.
+    const prompt = `### ROLE ###
+You are a specialist AI for cartographic data extraction. Your purpose is to accurately trace property boundaries from survey images with high precision.
 
-**Chain of Thought Instructions:**
+### TASK ###
+Your task is to analyze the provided survey image and produce a new image containing ONLY the primary, outermost legal property boundary.
 
-1.  **Analyze the entire survey:** First, examine the image to understand its components. Identify the main drawing area that depicts the property, and distinguish it from title blocks, legends, and notes.
-2.  **Identify Boundary Line Candidates:** Look for lines that define the property's perimeter. The primary boundary line is typically the most prominent, solid, and continuous line enclosing the main parcel. It will have annotations along its segments, such as distances (e.g., '120.55 ft') and bearings (e.g., 'N 89° E').
-3.  **Select the Correct Boundary:** From the candidates, select the single, closed polygon that represents the legal property boundary. Ignore internal subdivision lines or other non-boundary features.
-4.  **Trace with Precision:** Mentally trace the selected boundary line from corner to corner. Pay close attention to curves and angles to ensure an exact match.
-5.  **Construct the Final Output:** Based on your precise tracing, generate the output image.
+### INSTRUCTIONS (CHAIN-OF-THOUGHT) ###
+1.  **Analyze Image:** Scan the entire survey image to identify all lines and shapes.
+2.  **Identify Boundary:** Distinguish the main property boundary from all other features (e.g., setback lines, easements, topographical contours, dimension lines, building footprints). The boundary is typically a thicker, continuous line forming a closed shape around the property.
+3.  **Trace with Precision:** Carefully trace this single, closed polygon. The line must be continuous and connect back to itself perfectly.
+4.  **Verify Output:** Ensure the final image contains nothing but the traced boundary line on a transparent background.
 
-**Final Output Requirements:**
-
-*   **Content:** ONLY the traced boundary lines/curves.
-*   **Line Style:** The line must be a solid, continuous red line, approximately 4 pixels thick.
-*   **Background:** The background must be completely transparent.
-*   **Dimensions:** The output image must have the exact same dimensions as the input survey image.
-*   **Format:** Do not include any text, annotations, or other marks. Return only the image.`;
+### OUTPUT REQUIREMENTS ###
+-   **Content:** The output image MUST contain ONLY the single, closed polygon representing the property boundary.
+-   **Line Style:** Solid red (#FF0000), 4 pixels thick.
+-   **Background:** 100% transparent.
+-   **Dimensions:** Must match the input survey image exactly.
+-   **Format:** Produce ONLY the image as your final output. Do not respond with text, JSON, or any other format.`;
 
     const textPart = { text: prompt };
 
@@ -128,22 +140,36 @@ export const refineSiteBoundary = async (
     const boundaryPart = await fileToPart(boundaryImage);
     const maskPart = await fileToPart(maskImage);
 
-    const prompt =  `You are an expert image editor specializing in site surveys. The user wants to refine a detected site boundary.
-You are given three inputs:
-1. The original site survey image.
-2. A mask image where the user has drawn on the areas to be corrected.
-3. A text query with instructions.
+    const prompt = `### ROLE ###
+You are a specialist AI image editor for cartographic data. You correct site boundary overlays based on user feedback with extreme precision.
 
-Your task is to generate a new, corrected site boundary overlay.
+### CONTEXT ###
+You are given three images and one text instruction to perform a precise correction:
+1.  **Survey Image:** The ground truth map showing the correct property lines. This is your reference for accuracy.
+2.  **Current Boundary Image:** The existing red boundary line that contains an error. This is the image you will edit.
+3.  **Mask Image:** A transparent image where the user has drawn in magenta. This highlights the specific Area of Interest (AOI) needing correction. Your edits should be focused here.
+4.  **Text Query:** The user's explicit instruction: "${query}"
 
-Instructions:
-- Analyze the original survey.
-- Focus on the human-drawn areas highlighted (4px magenta pencil) in the mask image.
-- Follow the user's text query: "${query}"
-- The output must be a transparent PNG with only a single, clean, red line representing the corrected boundary.
-- The output image dimensions must match the original survey image.
+### TASK ###
+Your task is to create a new, corrected boundary image. You will modify the 'Current Boundary Image' according to the user's feedback: ${query}, using the 'Survey Image' as a reference, focusing only on the area marked in the 'Mask Image'. The final result must be a single, seamless, closed polygon.
 
-Output: Return ONLY the final image. Do not return any text.`;
+### INSTRUCTIONS (CHAIN-OF-THOUGHT) ${query} ###
+1.  **Identify the Area of Interest (AOI):** Locate the magenta markings on the 'Mask Image'. This is the precise area where the correction must happen.
+2.  **Analyze the User's Goal:** Read the 'Text Query' to understand what the user wants to achieve (e.g., "extend the line", "follow the curve", "remove this section").
+3.  **Reference the Ground Truth:** Look at the 'Survey Image' within the AOI. Identify the correct property line feature that the user is referring to.
+4.  **Synthesize the Correction:**
+    *   Take the 'Current Boundary Image' as your base.
+    *   In the AOI, erase the incorrect segment of the red line.
+    *   Using the 'Survey Image' as a guide and following the 'Text Query', draw the new, corrected segment with high precision.
+    *   **Seamless Integration (CRITICAL):** The new segment MUST connect perfectly to the unmodified parts of the original red line. The final output must be a single, unbroken, closed polygon with no gaps, overlaps, or artifacts at the connection points.
+5.  **Final Verification:** The final image must contain a single, clean, closed red loop. Ensure there are no gaps or stray marks. The correction should only be within the AOI.
+
+### OUTPUT REQUIREMENTS ###
+*   **Content:** You MUST ONLY output the complete, corrected boundary line.
+*   **Line Style:** A solid, continuous red (#FF0000) line, exactly 4 pixels thick.
+*   **Background:** The background MUST be 100% transparent.
+*   **Dimensions:** The output image dimensions MUST be identical to the input survey image.
+*   **Format:** The final output is an image. DO NOT return any text.`;
 
     const textPart = { text: prompt };
     
@@ -196,38 +222,35 @@ Here is a brief analysis of the provided survey:
 };
 
 /**
- * Gets AI-recommended site plan datapoints based on a survey image.
+ * Gets AI-recommended site plan datapoints based on the chat history and survey image.
+ * @param chatHistory The conversation history between the user and the bot.
  * @param surveyImage The site survey image file.
- * @param purpose The purpose of the project.
- * @param priority The main design priority.
- * @param summary The pre-computed summary of the site survey.
  * @returns A promise that resolves to a string containing reasoning and parameter recommendations.
  */
 export const getSitePlanDatapoints = async (
+    chatHistory: ChatMessageForPrompt[],
     surveyImage: File,
-    purpose: string,
-    priority: string,
-    summary: string,
 ): Promise<string> => {
-    console.log('Getting site plan datapoint recommendations...');
+    console.log('Getting site plan datapoint recommendations from chat history and survey image...');
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-    const surveyImagePart = await fileToPart(surveyImage);
     
-    const prompt = `You are an expert urban planner. You have already analyzed a site survey and provided the following summary: "${summary}".
+    const surveyImagePart = await fileToPart(surveyImage);
+    const formattedHistory = formatChatHistory(chatHistory);
 
-Now, based on that summary and the user's goals, provide recommended parameters for the site plan.
+    const prompt = `You are an expert urban planner. You are tasked with recommending initial site plan parameters based on a conversation transcript and a site survey image.
 
-**User Goals:**
-- **Project Purpose:** ${purpose}
-- **Design Priority:** ${priority}
+**Conversation Transcript:**
+---
+${formattedHistory}
+---
 
 **Your task is twofold:**
-1.  First, provide a reasoning paragraph explaining *why* you are recommending certain parameters. Link your reasoning to the survey summary and the user's goals. **Use Markdown for formatting** (e.g., use bold text for key terms like **lot yield** or **zoning code R-1**).
+1.  First, based on the entire conversation (including the initial survey summary and the user's stated goals) AND a visual analysis of the provided **site survey image**, provide a reasoning paragraph. Reference visual elements from the image (e.g., shape of the lot, visible topography, existing structures) in your reasoning. **Use Markdown for formatting**.
 2.  After your reasoning paragraph, output the parameters. The output format for the parameters MUST be exactly as follows, starting with "- Coverage Constraints:", with only numbers after each colon.
 
 ---
 EXAMPLE RESPONSE STRUCTURE:
-Based on the **5.21-acre** property size and the goal to **maximize lot yield** for a residential project, I recommend a smaller minimum lot size. The **flat terrain** allows for a standard road width, and the utility easement on the northern boundary will be respected.
+Based on the **irregular shape** of the lot visible in the survey and the goal to **maximize lot yield**, I recommend a smaller minimum lot size to fit more parcels. The **flat terrain** allows for a standard road width, and the utility easement on the northern boundary will be respected.
 
 - Coverage Constraints:
     - Maximum buildable coverage (%): 55
@@ -247,15 +270,73 @@ Based on the **5.21-acre** property size and the goal to **maximize lot yield** 
 
 Your actual response must follow this structure. Start with your reasoning, then provide the formatted parameter list. Do not include the "EXAMPLE RESPONSE STRUCTURE" or "---" markers in your output.`;
 
-    const textPart = { text: prompt };
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts: [surveyImagePart, { text: prompt }] },
+    });
+
+    console.log('Received datapoint recommendations from model based on chat history and image.');
+    return response.text;
+};
+
+/**
+ * Extracts the total area and unit from a survey image.
+ * @param surveyImage The site survey image file.
+ * @param boundaryImage The site boundary overlay image file.
+ * @returns A promise that resolves to an object with area and unit.
+ */
+export const getSiteArea = async (
+    surveyImage: File,
+    boundaryImage: File,
+): Promise<{ area: number; unit: 'sqft' | 'acre' | 'hectare' }> => {
+    console.log('Getting site area...');
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+
+    const surveyImagePart = await fileToPart(surveyImage);
+    const boundaryImagePart = await fileToPart(boundaryImage);
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            area: { type: Type.NUMBER, description: "The calculated total area of the property." },
+            unit: { type: Type.STRING, description: "The unit of measurement. Must be one of: 'sqft', 'acre', 'hectare'." }
+        },
+        required: ["area", "unit"]
+    };
+
+    const prompt = `You are an expert AI cartographer and surveyor's assistant.
+Your task is to analyze a survey image and a boundary overlay to determine the total area of the property.
+
+### INPUT IMAGES ###
+1.  **Survey Image:** The base map. Look for scale bars, north arrows, and written area statements (e.g., "Total Area = 5.21 AC.").
+2.  **Boundary Image:** A red polygon outlining the exact property. Your calculation must be for the area within this polygon.
+
+### INSTRUCTIONS (CHAIN-OF-THOUGHT) ###
+1.  **Analyze Survey for Scale/Area:** First, scrutinize the entire survey image for any explicit statements of total area or a graphical scale bar. This is the most reliable source.
+2.  **Calculate Area:** If an area is explicitly stated, use that number. If not, use the scale bar and the boundary polygon to estimate the area.
+3.  **Identify Unit:** Determine the unit of measurement (square feet, acres, or hectares). Return one of: 'sqft', 'acre', or 'hectare'.
+4.  **Format Output:** Return the data in a structured JSON format matching the provided schema.
+
+Return ONLY the JSON object. Do not add any other text or markdown.`;
 
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: { parts: [surveyImagePart, textPart] },
+        contents: { parts: [surveyImagePart, boundaryImagePart, { text: prompt }] },
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+        },
     });
 
-    console.log('Received datapoint recommendations from model.');
-    return response.text;
+    console.log('Received site area from model.');
+    const resultJson = JSON.parse(response.text);
+
+    // Basic validation
+    if (typeof resultJson.area !== 'number' || !['sqft', 'acre', 'hectare'].includes(resultJson.unit)) {
+        throw new Error('Invalid area data received from model.');
+    }
+    
+    return resultJson;
 };
 
 
@@ -268,6 +349,7 @@ Your actual response must follow this structure. Start with your reasoning, then
  * @param priority The main design priority (e.g., "Maximize Lot Yield").
  * @param datapoints The detailed site parameters.
  * @param networkType The type of road network to generate.
+ * @param lotCountRange The required range for the number of lots.
  * @returns A promise that resolves to the data URL of the generated site plan image.
  */
 export const generateSitePlan = async (
@@ -278,72 +360,72 @@ export const generateSitePlan = async (
     priority: string,
     datapoints: SiteDatapoints,
     networkType: string,
+    lotCountRange: { min: number, max: number },
 ): Promise<string> => {
-    console.log(`Starting site plan generation for ${networkType} network...`);
+    console.log(`Starting site plan generation for ${networkType} network with lot range ${lotCountRange.min}-${lotCountRange.max}...`);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     
     const surveyImagePart = await fileToPart(surveyImage);
     const boundaryImagePart = await fileToPart(boundaryImage);
-    const parts = [boundaryImagePart];
+    const parts = [surveyImagePart, boundaryImagePart];
     
     let accessPointsPrompt = '';
     if (accessPointsImage) {
         const accessPointsPart = await fileToPart(accessPointsImage);
         parts.push(accessPointsPart);
-        accessPointsPrompt = `POB(Point Of Beginning)s of road network is blue circles (marking mandatory road access points) in second provided image. The road network MUST connect to these points. This is a critical requirement. Confirm it and redesign road network!`
+        accessPointsPrompt = `The road network MUST connect to the access points marked with blue circles in the provided image. This is a critical requirement.`
     }
     
-    const prompt = `You are an expert urban planner and architect. Your task is to generate a professional, clear, and detailed site plan.
-You have been provided with:
-- An image showing the exact site boundary polygon (red lines)
-${accessPointsImage ? "- An image with blue circles marking mandatory road access points.\n" : ""}
+    const prompt = `You are an expert AI urban planner. Your task is to generate a professional site plan based on a set of images and constraints.
 
-Primary instruction: All elements of the generated site plan (roads, lots, green spaces, etc.) MUST be located entirely INSIDE the red boundary line shown in the boundary image.** Do not draw anything outside of this boundary.
+### CONTEXT & GOALS ###
+-   **Project Purpose:** ${purpose}
+-   **Design Priority:** ${priority}
+-   **Road Network Style:** ${networkType}
 
-User Requirements:
-- Project Purpose: ${purpose}
-- Design Priority: ${priority}
+### INPUT IMAGES ###
+1.  **Survey Image:** The base map showing site topography and context.
+2.  **Boundary Image:** A red polygon showing the exact boundary. All development MUST stay within this line.
+${accessPointsImage ? "3. **Access Points Image:** Blue circles mark MANDATORY road connection points.\n" : ""}
 
-Road Network Style: ${networkType} Network
+### CORE INSTRUCTIONS (CHAIN-OF-THOUGHT) ###
+1.  **Analyze Site & Constraints:** Review the survey, boundary, and the critical lot count requirement below. Your final design MUST adhere to the lot count range.
+2.  **Design Layout:**
+    *   Start by laying out the **${networkType} road network**. It must be efficient and connect to the mandatory access points if provided.
+    *   Subdivide the remaining area into lots, ensuring each lot meets the minimum size and width requirements.
+    *   Arrange lots logically along the roads.
+    *   Allocate required green space and open space.
+    *   Ensure all elements (roads, lots, green space) are entirely INSIDE the red boundary polygon.
+3.  **Final Validation (Self-Correction - STRICT):** Before creating the final image, you MUST validate your design against these rules:
+    *   **Lot Count Check (CRITICAL):** Count the total number of lots in your design. Does the number fall between ${lotCountRange.min} and ${lotCountRange.max}? If not, YOU MUST REDESIGN the layout (adjust road length, lot sizes, green space) until the lot count is within this required range.
+    *   **Boundary Check:** Is everything inside the red boundary?
+    *   **Access Point Check:** Does the road network connect to all access points?
+    *   **Priority Check:** Does the layout align with the user's priority (${priority})?
+    *   Do not output an image until all validation checks pass, especially the lot count.
 
-Road Network Refinements:
-- Optimize traffic flow and connectivity throughout the site.
-- Minimize dead-end streets where possible, unless creating a deliberate cul-de-sac for residential areas.
-- Intelligently incorporate cul-de-sacs or roundabouts where they would improve traffic circulation or lot arrangement, especially in residential layouts.
+### ZONING & INFRASTRUCTURE REQUIREMENTS (STRICT) ###
+-   **Required Lot Count:** Between ${lotCountRange.min} and ${lotCountRange.max} lots.
+-   Max Buildable Coverage: ${datapoints.maxBuildableCoverage}%
+-   Min Green Coverage: ${datapoints.minGreenCoverage}%
+-   Min Open Space: ${datapoints.minOpenSpace}%
+-   Min Lot Size: ${datapoints.minLotSize} sq ft
+-   Min Lot Width: ${datapoints.minLotWidth} ft
+-   Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
+-   Road Width: ${datapoints.roadWidth} ft
+-   Sidewalk Width: ${datapoints.sidewalkWidth} ft
+-   ${accessPointsPrompt}
 
-Site Plan Constraints (Adhere Strictly):
-- Maximum buildable coverage: ${datapoints.maxBuildableCoverage}%
-- Minimum green coverage: ${datapoints.minGreenCoverage}%
-- Minimum open space: ${datapoints.minOpenSpace}%
-- Minimum lot size: ${datapoints.minLotSize} sq ft
-- Minimum lot width: ${datapoints.minLotWidth} ft
-- Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
-- Road width: ${datapoints.roadWidth} ft
-- Sidewalk width: ${datapoints.sidewalkWidth} ft
-
-Instructions:
-1. Remove other elements except ONLY site boundary polygon (red lines) from provided site boundary image.
-2. Generate a ${networkType}-type road network INSIDE site boundary polygon ONLY while considering lotting.
-3. ${accessPointsPrompt}
-4.  Create a top-down, 2D site plan drawing that strictly follows all the Site Plan Constraints listed above inside site boundary polygon.
-5.  The layout must incorporate the specified **${networkType} road network style** and adhere to the **Road Network Refinements**.
-6.  The layout should reflect the user's stated '${purpose}' and '${priority}'.
-7.  Incorporate key features from the survey, such as property lines, building footprints, setbacks, dimensions, and easements.
-8.  The final output must be a clean, high-resolution PNG image of the site plan. Highlight road network (black), green space (green), lots (gray).
-
-Output: Return ONLY the final site plan image. Do not return text.`;
+### OUTPUT REQUIREMENTS ###
+-   **Format:** A clean, high-resolution, top-down 2D site plan image.
+-   **Styling:** Use clear visual distinctions: black for roads, green for green spaces, and gray for lots.
+-   **Content:** Return ONLY the final site plan image. Do not return any text.`;
     
     const textPart = { text: prompt };
-    const textPart1 = {text: "Remove other elements except ONLY site boundary polygon (red lines) from provided site boundary image."}
-    const textPart2 = {text: "Generate a "+networkType+"-type road network INSIDE site boundary polygon ONLY while considering lotting."}
-    // FIX: Instead of pushing to `parts` which was inferred as an array of only image parts,
-    // create a new array inline during the API call. This allows TypeScript to correctly
-    // infer the union type for the array contents (image parts and text parts).
 
     console.log('Sending survey image and prompt to the model...');
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image-preview',
-        contents: { parts: [...parts, textPart1, textPart2, textPart] },
+        contents: { parts: [...parts, textPart] },
         config: {
             responseModalities: [Modality.IMAGE, Modality.TEXT],
         },
@@ -418,6 +500,7 @@ Instructions:
  * @param query The user's text instructions for refinement.
  * @param datapoints The updated detailed site parameters.
  * @param accessPointsImage Optional image with user-marked access points.
+ * @param maskImage Optional image with user's drawings to guide refinement.
  * @returns A promise that resolves to the data URL of the refined site plan image.
  */
 export const refineSitePlan = async (
@@ -426,6 +509,7 @@ export const refineSitePlan = async (
     query: string,
     datapoints: SiteDatapoints,
     accessPointsImage: File | null,
+    maskImage: File | null,
 ): Promise<string> => {
     console.log('Refining site plan with user query and new datapoints...');
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
@@ -444,6 +528,14 @@ export const refineSitePlan = async (
 - It is CRITICAL that you preserve these blue circles in their exact positions in the final output. Do not move, alter, or remove them.`;
     }
 
+    let maskPromptSegment = '';
+    if (maskImage) {
+        const maskPart = await fileToPart(maskImage);
+        parts.push(maskPart);
+        maskPromptSegment = `
+**User Drawing (Mask):** You have also been provided with a mask image where the user has drawn in magenta. This indicates the precise area of interest for the changes described in the query. You MUST focus your edits on these marked areas.`;
+    }
+
     const prompt = `You are an expert urban planner. The user wants to refine an existing site plan.
 You are given:
 1. The current site plan image to be modified.
@@ -451,6 +543,7 @@ You are given:
 3. A text query with refinement instructions: "${query}"
 4. Updated Site Plan Constraints.
 ${accessPointsPromptSegment}
+${maskPromptSegment}
 
 **Core Planning Principles:** As you apply the user's query, also adhere to these core principles for the road network:
 - Optimize traffic flow and connectivity throughout the site.
@@ -470,6 +563,7 @@ Updated Constraints (Adhere Strictly):
 Instructions:
 - Analyze the current site plan image.
 - Modify it based on the user's text query. The query may contain both visual instructions (e.g., "add a park") and parameter changes (e.g., "make lots bigger"). Prioritize instructions in the query.
+- If a user mask is provided, use it to guide where the changes should be made. The magenta marks show where to focus.
 - While implementing the changes, ensure the entire plan adheres to the **Core Planning Principles** mentioned above.
 - Ensure the refined plan still respects the updated constraints, the original survey's boundaries, and the mandatory access points if provided.
 - The output must be a new, clean, high-resolution PNG image of the refined site plan. The visual style should match the input plan.
@@ -538,106 +632,120 @@ Format your response using Markdown. Use headings (e.g., \`## Constraint Complia
 };
 
 /**
- * Generates suggestions for how to refine a site boundary.
- * @param surveyImage The original site survey image.
- * @param boundaryImage The current boundary overlay image.
+ * Generates suggestions for how to refine a site boundary based on chat history and the survey image.
+ * @param chatHistory The conversation history between the user and the bot.
+ * @param surveyImage The site survey image file.
  * @returns A promise that resolves to an array of 3 string suggestions.
  */
 export const getBoundaryRefinementSuggestions = async (
+    chatHistory: ChatMessageForPrompt[],
     surveyImage: File,
-    boundaryImage: File,
 ): Promise<string[]> => {
-    console.log('Getting boundary refinement suggestions...');
+    console.log('Getting boundary refinement suggestions from chat history and survey image...');
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    
+    const surveyImagePart = await fileToPart(surveyImage);
+    const formattedHistory = formatChatHistory(chatHistory);
 
-    const surveyPart = await fileToPart(surveyImage);
-    const boundaryPart = await fileToPart(boundaryImage);
-    const prompt = `You are an AI assistant for a land surveyor. You are given a site survey and a detected boundary overlay (in red).
-Your task is to identify potential inaccuracies in the red boundary line when compared to the official survey drawing.
-The user will be using a drawing tool with a magenta pencil to mark the area needing correction on a digital canvas.
-Based on your analysis, provide 3 short, actionable text queries the user could write to accompany their drawing. These queries should instruct the editing AI on how to fix the boundary in the marked area. The queries should be concise and direct.
-The queries should be phrased as commands to an image editing AI.
+    const prompt = `You are an AI assistant for a land surveyor. You are reviewing a conversation about a site plan and have been provided the survey image.
+Your task is to analyze the entire conversation and the survey image to identify potential areas where an AI's initial site boundary detection might be inaccurate. Based on both the textual description of the property and visual features in the image, provide 3 short, actionable text queries a user could write to correct the boundary.
+The user will be using a drawing tool to mark the area, and your query will accompany their drawing. The queries should be concise, direct commands to an image editing AI.
 
-Return a JSON array of exactly 3 strings.
+**Conversation Transcript:**
+---
+${formattedHistory}
+---
 
-Example response:
-["Extend the boundary to include the northernmost corner as shown on the survey.", "The western side should be a smooth curve, not a straight line.", "Remove the small triangular section on the bottom right that is outside the property line."]`
+**Instructions:**
+- Read the conversation and visually inspect the survey image.
+- Look for clues in the text (e.g., "bordered by a creek") and find the corresponding visual feature in the image.
+- Look for visual features that might be misidentified, like easements, setback lines, or curved boundaries.
+- Create 3 distinct suggestions for refining the boundary based on these combined textual and visual clues.
 
-    const textPart = { text: prompt };
+Return ONLY a valid JSON array of exactly 3 strings. Do not include markdown backticks or any other text.
+
+Example response (if survey image shows a creek and text mentions it):
+["Extend the boundary to the northernmost corner as shown on the survey.", "The western side should follow the creek line, not a straight line.", "Make sure the boundary does not include the utility easement on the north side."]`
 
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: { parts: [surveyPart, boundaryPart, textPart] },
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-            }
-        },
+        contents: { parts: [surveyImagePart, { text: prompt }] },
     });
 
-    console.log('Received boundary suggestions from model.');
-    const resultJson = JSON.parse(response.text);
-    return resultJson as string[];
+    console.log('Received boundary suggestions from model based on chat history and image.');
+    try {
+        // Handle cases where the model might wrap the JSON in markdown backticks
+        const jsonStr = response.text.trim().replace(/^```json\s*|```\s*$/g, '');
+        const resultJson = JSON.parse(jsonStr);
+        // Validate the parsed structure before returning
+        if (Array.isArray(resultJson) && resultJson.every(item => typeof item === 'string')) {
+            return resultJson;
+        } else {
+             console.error("Parsed JSON is not an array of strings:", resultJson);
+             return [];
+        }
+    } catch (e) {
+        console.error("Failed to parse JSON suggestions from model response:", e, "Response text:", response.text);
+        return []; // Return empty array on failure
+    }
 };
 
 /**
- * Generates suggestions for how to refine a site plan.
- * @param planImage The current site plan image.
- * @param datapoints The datapoints used to generate the plan.
- * @param purpose The purpose of the project (e.g., "Commercial").
- * @param priority The main design priority (e.g., "Maximize Lot Yield").
+ * Generates suggestions for how to refine a site plan based on chat history and the current plan image.
+ * @param chatHistory The conversation history between the user and the bot.
+ * @param sitePlanImage The current site plan image file.
  * @returns A promise that resolves to an array of 3 string suggestions.
  */
 export const getPlanRefinementSuggestions = async (
-    planImage: File,
-    datapoints: SiteDatapoints,
-    purpose: string,
-    priority: string,
+    chatHistory: ChatMessageForPrompt[],
+    sitePlanImage: File,
 ): Promise<string[]> => {
-    console.log('Getting plan refinement suggestions...');
+    console.log('Getting plan refinement suggestions from chat history and site plan image...');
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
-    const planPart = await fileToPart(planImage);
-    const prompt = `You are an expert AI urban planner. Your task is to analyze a site plan and provide 3 creative, actionable suggestions for improvement.
+    const planImagePart = await fileToPart(sitePlanImage);
+    const formattedHistory = formatChatHistory(chatHistory);
+    
+    const prompt = `You are an expert AI urban planner. Your task is to analyze a conversation and the current site plan image to provide 3 creative, actionable suggestions for the user's next refinement step.
 
-**Analysis Context:**
-1.  **Site Plan Image:** You will be given an image of the current site plan.
-2.  **User Goals:** The user's high-level goals are:
-    - **Project Purpose:** "${purpose}"
-    - **Design Priority:** "${priority}"
-3.  **Constraints:** The plan must adhere to these parameters: ${JSON.stringify(datapoints)}
+**Conversation Transcript:**
+---
+${formattedHistory}
+---
 
 **Your Instructions:**
-1.  **Analyze the Image:** Carefully review the site plan layout, including roads, lots, and open spaces.
-2.  **Align with Goals:** Generate suggestions that directly support the user's stated **Purpose** and **Priority**.
-    - If Priority is "Maximize Lot Yield", focus on efficiency, density, and lot configuration.
-    - If Purpose is "Residential" and Priority is "Balanced Layout", suggest community-oriented features like parks or improved traffic flow.
-    - If Purpose is "Commercial", suggest improvements for access, parking, or customer experience.
-3.  **Focus on Actionable Changes:** Your suggestions must be phrased as direct, actionable commands for an AI. They should describe **structural or visual changes** (e.g., adding features, reconfiguring roads) rather than simple parameter adjustments (e.g., "increase lot size").
+1.  **Analyze the Conversation and the Current Plan:** Carefully review the transcript to understand the project's history, goals (purpose and priority), and any previous refinement steps. Simultaneously, visually analyze the provided site plan image for its strengths and weaknesses (e.g., traffic flow, green space distribution, lot shapes).
+2.  **Align with Goals and Visuals:** Generate suggestions that directly support the user's stated goals AND address observations from the visual plan.
+    - If Priority is "Maximize Lot Yield", and the plan shows awkward empty spaces, suggest ways to reconfigure lots to use that space.
+    - If Purpose is "Residential" and the plan has one small park, suggest consolidating green space or adding walking paths.
+    - If the plan shows long, straight roads, suggest traffic calming measures like a roundabout.
+3.  **Focus on Actionable Changes:** Your suggestions must be phrased as direct, actionable commands for an AI. They should describe **structural or visual changes** (e.g., adding features, reconfiguring roads) rather than simple parameter adjustments (e.g., "increase lot size"). The user will also have a form to change parameters, so your suggestions should be about things that cannot be done in the form.
 
 **Output Requirements:**
-- Return a JSON array containing exactly 3 distinct string suggestions.
+- Return ONLY a valid JSON array of exactly 3 distinct string suggestions. Do not include markdown backticks or any other text.
 
 **Example (for a "Residential" / "Balanced Layout" project):**
-["Consolidate the green space into a central community park.", "Add a cul-de-sac at the end of the northernmost road to improve safety.", "Connect the two dead-end streets on the west side to create a loop."]`
-
-    const textPart = { text: prompt };
+["Consolidate the separate green spaces into a single, central community park.", "Add a cul-de-sac at the end of the northernmost road to improve safety and create premium lots.", "Connect the two dead-end streets on the west side to create a continuous loop for better traffic flow."]`
     
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: { parts: [planPart, textPart] },
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-            }
-        },
+        contents: { parts: [planImagePart, { text: prompt }] },
     });
     
-    console.log('Received plan suggestions from model.');
-    const resultJson = JSON.parse(response.text);
-    return resultJson as string[];
+    console.log('Received plan suggestions from model based on chat history and image.');
+    try {
+        // Handle cases where the model might wrap the JSON in markdown backticks
+        const jsonStr = response.text.trim().replace(/^```json\s*|```\s*$/g, '');
+        const resultJson = JSON.parse(jsonStr);
+        // Validate the parsed structure before returning
+        if (Array.isArray(resultJson) && resultJson.every(item => typeof item === 'string')) {
+            return resultJson;
+        } else {
+             console.error("Parsed JSON is not an array of strings:", resultJson);
+             return [];
+        }
+    } catch (e) {
+        console.error("Failed to parse JSON suggestions from model response:", e, "Response text:", response.text);
+        return []; // Return empty array on failure
+    }
 };

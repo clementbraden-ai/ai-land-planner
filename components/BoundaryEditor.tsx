@@ -7,6 +7,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { dataURLtoFile } from '../App';
 import { PencilIcon, UploadIcon, LineIcon, EyeIcon, UndoIcon, RedoIcon, LightBulbIcon } from './icons';
 import Spinner from './Spinner';
+import SuggestionChips from './SuggestionChips';
 
 interface BoundaryEditorProps {
   surveyImageUrl: string;
@@ -43,8 +44,6 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, boundar
   
   // Drawing tool state
   const [tool, setTool] = useState<Tool>('pencil');
-  const [brushSize, setBrushSize] = useState(15);
-  const [opacity, setOpacity] = useState(1.0);
   
   // Layer visibility state
   const [layers, setLayers] = useState({
@@ -136,8 +135,8 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, boundar
     };
     
     const setupContext = () => {
-        ctx.strokeStyle = `rgba(255, 0, 255, ${opacity})`; // Magenta with opacity
-        ctx.lineWidth = brushSize;
+        ctx.strokeStyle = `rgba(255, 0, 255, 1.0)`; // Solid Magenta/Pink for accuracy
+        ctx.lineWidth = 4; // Fixed 4px size for accuracy
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
     };
@@ -211,7 +210,7 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, boundar
       canvas.removeEventListener('mouseup', stopDrawing);
       canvas.removeEventListener('mouseleave', stopDrawing);
     };
-  }, [surveyImageUrl, tool, brushSize, opacity]);
+  }, [surveyImageUrl, tool]);
 
   const handleClear = () => {
     const canvas = canvasRef.current;
@@ -261,15 +260,8 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, boundar
                     <button onClick={() => setTool('pencil')} disabled={isUpdating} className={`p-2 rounded-md transition-colors ${tool === 'pencil' ? 'bg-blue-600 text-white' : 'bg-white/10 hover:bg-white/20'}`}><PencilIcon className='w-5 h-5'/></button>
                     <button onClick={() => setTool('line')} disabled={isUpdating} className={`p-2 rounded-md transition-colors ${tool === 'line' ? 'bg-blue-600 text-white' : 'bg-white/10 hover:bg-white/20'}`}><LineIcon className='w-5 h-5'/></button>
                 </div>
-                 <div className='flex items-center gap-2'>
-                    <span className='text-sm font-semibold text-gray-400'>Size:</span>
-                    <input type="range" min="2" max="50" value={brushSize} onChange={e => setBrushSize(Number(e.target.value))} disabled={isUpdating} className="w-24 cursor-pointer" />
-                    <span className='text-xs text-gray-300 w-6 text-right'>{brushSize}px</span>
-                </div>
-                 <div className='flex items-center gap-2'>
-                    <span className='text-sm font-semibold text-gray-400'>Opacity:</span>
-                    <input type="range" min="0.1" max="1.0" step="0.1" value={opacity} onChange={e => setOpacity(Number(e.target.value))} disabled={isUpdating} className="w-24 cursor-pointer" />
-                    <span className='text-xs text-gray-300 w-8 text-right'>{Math.round(opacity * 100)}%</span>
+                <div className="text-sm text-gray-300">
+                    <span className="font-semibold">Brush:</span> 4px Pink (Fixed)
                 </div>
                 <div className='flex items-center gap-2'>
                     <button onClick={handleUndo} disabled={!canUndo || isUpdating} className={`p-2 rounded-md transition-colors bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed`} title="Undo"><UndoIcon className='w-5 h-5'/></button>
@@ -309,25 +301,13 @@ const BoundaryEditor: React.FC<BoundaryEditorProps> = ({ surveyImageUrl, boundar
                     <p className="text-sm text-gray-300">Need an idea? Try an AI-generated suggestion to refine your boundary.</p>
                 </div>
             </div>
-             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-9">
-                {isSuggestionsLoading ? (
-                    <div className="col-span-3 flex items-center justify-center p-2">
-                        <Spinner className="w-5 h-5" />
-                        <span className="ml-2 text-sm text-gray-400">Generating suggestions...</span>
-                    </div>
-                ) : (
-                    (suggestions.length > 0 ? suggestions : Array(3).fill(''))
-                    .map((suggestion, index) => (
-                        <button 
-                            key={index} 
-                            onClick={() => suggestion && setQuery(suggestion)}
-                            disabled={isUpdating || !suggestion}
-                            className="text-left text-xs bg-white/5 text-gray-300 font-medium py-2 px-3 rounded-md transition-colors hover:bg-white/10 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed h-12"
-                        >
-                            {suggestion || <span className="text-gray-500">No suggestion available.</span>}
-                        </button>
-                    ))
-                )}
+             <div className="pl-9">
+                <SuggestionChips
+                    suggestions={suggestions}
+                    onSelect={setQuery}
+                    isLoading={isSuggestionsLoading}
+                    isDisabled={isUpdating}
+                />
             </div>
         </div>
 

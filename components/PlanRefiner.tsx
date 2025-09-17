@@ -6,20 +6,22 @@
 import React, { useState } from 'react';
 import { SiteDatapoints } from '../types';
 import DatapointsForm from './DatapointsForm';
-import { MagicWandIcon, SearchIcon, LightBulbIcon } from './icons';
+import { MagicWandIcon, SearchIcon, LightBulbIcon, PencilIcon } from './icons';
 import Spinner from './Spinner';
+import SuggestionChips from './SuggestionChips';
 
 interface PlanRefinerProps {
   initialDatapoints: SiteDatapoints;
   onDatapointsChange: (data: SiteDatapoints) => void;
   onRefine: (query: string, datapoints: SiteDatapoints) => void;
   onAnalyze: () => void;
+  onStartEdit: () => void;
   isLoading: boolean;
   suggestions: string[];
   isSuggestionsLoading: boolean;
 }
 
-const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapointsChange, onRefine, onAnalyze, isLoading, suggestions, isSuggestionsLoading }) => {
+const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapointsChange, onRefine, onAnalyze, onStartEdit, isLoading, suggestions, isSuggestionsLoading }) => {
     const [query, setQuery] = useState('');
     
     const handleRefineClick = () => {
@@ -45,25 +47,13 @@ const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapoin
                             <p className="text-sm text-gray-300">How would you like to refine the plan? Try a suggestion or write your own request below.</p>
                         </div>
                     </div>
-                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-9">
-                        {isSuggestionsLoading ? (
-                            <div className="col-span-3 flex items-center justify-center p-2">
-                                <Spinner className="w-5 h-5" />
-                                <span className="ml-2 text-sm text-gray-400">Generating suggestions...</span>
-                            </div>
-                        ) : (
-                            (suggestions.length > 0 ? suggestions : Array(3).fill(''))
-                            .map((suggestion, index) => (
-                                <button 
-                                    key={index} 
-                                    onClick={() => suggestion && setQuery(suggestion)}
-                                    disabled={isLoading || !suggestion}
-                                    className="text-left text-xs bg-white/5 text-gray-300 font-medium py-2 px-3 rounded-md transition-colors hover:bg-white/10 active:scale-95 disabled:opacity-50 h-12 disabled:cursor-not-allowed"
-                                >
-                                     {suggestion || <span className="text-gray-500">No suggestion available.</span>}
-                                </button>
-                            ))
-                        )}
+                    <div className="pl-9">
+                        <SuggestionChips
+                            suggestions={suggestions}
+                            onSelect={setQuery}
+                            isLoading={isSuggestionsLoading}
+                            isDisabled={isLoading}
+                        />
                     </div>
                 </div>
 
@@ -93,7 +83,15 @@ const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapoin
                     className="w-full flex items-center justify-center gap-2 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <MagicWandIcon className="w-5 h-5" />
-                    Refine with AI
+                    Refine with Text
+                </button>
+                 <button
+                    onClick={onStartEdit}
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-center gap-2 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <PencilIcon className="w-5 h-5" />
+                    Edit on Canvas
                 </button>
                 <button
                     onClick={onAnalyze}

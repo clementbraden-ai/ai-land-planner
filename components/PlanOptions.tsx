@@ -30,7 +30,7 @@ const PlanOptions: React.FC<PlanOptionsProps> = ({ options, onSelect, isLoading,
                     <span className="hidden sm:inline">Back</span>
                 </button>
                 <h2 className="text-3xl font-bold text-gray-100">Select an Initial Concept</h2>
-                <p className="text-gray-400 mt-2 max-w-2xl mx-auto">The AI has generated four site plan concepts based on different road network types. Choose one to refine further.</p>
+                <p className="text-gray-400 mt-2 max-w-2xl mx-auto">The AI has generated multiple site plan concepts based on different road network types. Choose one to refine further.</p>
             </div>
 
             {isLoading && !optionEntries.some(o => o[1].url) && (
@@ -40,7 +40,7 @@ const PlanOptions: React.FC<PlanOptionsProps> = ({ options, onSelect, isLoading,
                 </div>
             )}
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full mt-4">
                 {optionEntries.map(([name, { url, description }]) => (
                     <div key={name} className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 flex flex-col gap-3 backdrop-blur-sm">
                         <h3 className="text-xl font-bold text-center text-blue-300">{name} Network</h3>
