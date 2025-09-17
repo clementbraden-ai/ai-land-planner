@@ -49,7 +49,7 @@ interface ChatMessage {
   options?: string[];
 }
 
-type AppStage = 'UPLOAD' | 'ANALYSIS' | 'BOUNDARY_REVIEW' | 'BOUNDARY_EDIT' | 'PRE_GENERATION_QUERY' | 'ACCESS_POINTS' | 'PLAN_OPTIONS' | 'PLAN_REFINEMENT' | 'PLAN_EDIT' | 'PLAN_ANALYSIS';
+type AppStage = 'UPLOAD' | 'ANALYSIS' | 'BOUNDARY_REVIEW' | 'BOUNDARY_EDIT' | 'PRE_GENERATION_QUERY' | 'ADDITIONAL_DETAILS' | 'ACCESS_POINTS' | 'PLAN_OPTIONS' | 'PLAN_REFINEMENT' | 'PLAN_EDIT' | 'PLAN_ANALYSIS';
 
 interface SiteAnalysisChatProps {
     messages: ChatMessage[];
@@ -184,6 +184,9 @@ const App: React.FC = () => {
   const [surveySummary, setSurveySummary] = useState<string | null>(null);
   const [isBotThinking, setIsBotThinking] = useState<boolean>(false);
   const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(false);
+  const [numberOfEntrances, setNumberOfEntrances] = useState<number>(2);
+  const [hasPonds, setHasPonds] = useState<boolean | null>(null);
+  const [culDeSacAllowed, setCulDeSacAllowed] = useState<boolean>(true);
   
   // Suggestion State
   const [boundarySuggestions, setBoundarySuggestions] = useState<string[]>(INITIAL_BOUNDARY_SUGGESTIONS);
@@ -214,6 +217,9 @@ const App: React.FC = () => {
             setAiRecommendations(savedState.aiRecommendations || null);
             setDatapoints(savedState.datapoints || null);
             setSurveySummary(savedState.surveySummary || null);
+            setNumberOfEntrances(savedState.numberOfEntrances ?? 2);
+            setHasPonds(savedState.hasPonds ?? null);
+            setCulDeSacAllowed(savedState.culDeSacAllowed ?? true);
         }
     } catch (error) {
         console.error("Failed to load app state from localStorage", error);
@@ -248,6 +254,9 @@ const App: React.FC = () => {
         aiRecommendations,
         datapoints,
         surveySummary,
+        numberOfEntrances,
+        hasPonds,
+        culDeSacAllowed,
     };
 
     try {
@@ -258,7 +267,8 @@ const App: React.FC = () => {
   }, [
       isStateLoaded, appStage, surveyImageUrl, boundaryImageUrl, accessPointsImageUrl,
       sitePlanImageUrl, planOptions, planAnalysis, messages, projectPurpose,
-      designPriority, aiRecommendations, datapoints, surveySummary
+      designPriority, aiRecommendations, datapoints, surveySummary, numberOfEntrances,
+      hasPonds, culDeSacAllowed
   ]);
 
   const handleUploadNew = useCallback(() => {
@@ -278,6 +288,9 @@ const App: React.FC = () => {
     setProjectPurpose(null);
     setDesignPriority(null);
     setAiRecommendations(null);
+    setNumberOfEntrances(2);
+    setHasPonds(null);
+    setCulDeSacAllowed(true);
     
     // Reset all loading and error states for a clean start
     setError(null);
@@ -305,11 +318,14 @@ const App: React.FC = () => {
         case 'PRE_GENERATION_QUERY':
             setAppStage('BOUNDARY_REVIEW');
             break;
+        case 'ADDITIONAL_DETAILS':
+            setAppStage('PRE_GENERATION_QUERY');
+            break;
         case 'ACCESS_POINTS':
             setAppStage('PRE_GENERATION_QUERY');
             break;
         case 'PLAN_OPTIONS':
-            setAppStage('PRE_GENERATION_QUERY');
+            setAppStage('ADDITIONAL_DETAILS');
             break;
         case 'PLAN_EDIT':
             setAppStage('PLAN_REFINEMENT');
@@ -390,14 +406,12 @@ const App: React.FC = () => {
           const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
           const page = await pdf.getPage(1); // Get the first page
 
-          // Convert PDF to PNG
-          // Dynamically calculate scale to cap the longest dimension and use JPEG
-          // to prevent overly large images from exceeding localStorage quota.
-          const baseViewport = page.getViewport({ scale: 1.0 });
-          const MAX_DIMENSION = 1024; // Reduced from 1200
-          const scale = Math.min(MAX_DIMENSION / baseViewport.width, MAX_DIMENSION / baseViewport.height);
+          // Convert PDF to image at a higher resolution for better detail.
+          // PDF.js renders at 72 DPI by default, so we scale it up.
+          const desiredDpi = 200;
+          const scale = desiredDpi / 72;
           const viewport = page.getViewport({ scale });
-          console.log(`Rendering PDF page at scale ${scale.toFixed(2)} to dimensions ${Math.round(viewport.width)}x${Math.round(viewport.height)}`);
+          console.log(`Rendering PDF page at ${desiredDpi} DPI (scale: ${scale.toFixed(2)}) to dimensions ${Math.round(viewport.width)}x${Math.round(viewport.height)}`);
           
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width;
@@ -406,7 +420,8 @@ const App: React.FC = () => {
           if (!context) throw new Error('Could not create canvas context.');
 
           await page.render({ canvas, canvasContext: context, viewport: viewport }).promise;
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.9); // Switched to JPEG
+          // Use a high-quality JPEG to balance file size and detail.
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
           setSurveyImageUrl(dataUrl);
           
           setAppStage('ANALYSIS');
@@ -595,7 +610,7 @@ const App: React.FC = () => {
     }
   }, [surveyImageUrl, boundaryImageUrl, messages]);
 
-  const handleGeneratePlanOptions = useCallback(async (accessPointsFile: File | null) => {
+  const handleGeneratePlanOptions = useCallback(async () => {
     if (!surveyImageUrl || !boundaryImageUrl || !projectPurpose || !designPriority || !datapoints) {
       setError('Required information is missing. Please complete all steps.');
       return;
@@ -620,6 +635,11 @@ const App: React.FC = () => {
         const surveyImageFile = dataURLtoFile(surveyImageUrl, 'survey.png');
         const boundaryImageFile = dataURLtoFile(boundaryImageUrl, 'boundary.png');
         
+        let accessPointsFile: File | null = null;
+        if (accessPointsImageUrl) {
+            accessPointsFile = dataURLtoFile(accessPointsImageUrl, 'access-points.png');
+        }
+
         // Calculate site area and max lots for accuracy
         console.log("Calculating site area for lot estimation...");
         const { area, unit } = await getSiteArea(surveyImageFile, boundaryImageFile);
@@ -645,7 +665,19 @@ const App: React.FC = () => {
         
         for (const type of networkTypes) {
             try {
-                const url = await generateSitePlan(surveyImageFile, boundaryImageFile, accessPointsFile, projectPurpose!, designPriority!, datapoints, type.name, lotCountRange);
+                const url = await generateSitePlan(
+                    surveyImageFile, 
+                    boundaryImageFile, 
+                    accessPointsFile, 
+                    projectPurpose!, 
+                    designPriority!, 
+                    datapoints, 
+                    type.name, 
+                    lotCountRange, 
+                    accessPointsFile ? null : numberOfEntrances,
+                    hasPonds,
+                    culDeSacAllowed
+                );
                 setPlanOptions(prev => ({
                     ...prev,
                     [type.name]: { ...prev[type.name], url }
@@ -663,7 +695,7 @@ const App: React.FC = () => {
     } finally {
         setIsGeneratingPlans(false);
     }
-  }, [surveyImageUrl, boundaryImageUrl, projectPurpose, designPriority, datapoints]);
+  }, [surveyImageUrl, boundaryImageUrl, accessPointsImageUrl, projectPurpose, designPriority, datapoints, numberOfEntrances, hasPonds, culDeSacAllowed]);
 
   const handleConfirmAccessPoints = useCallback((accessPointsFile: File) => {
     // Convert file to dataURL to save for session persistence
@@ -671,10 +703,9 @@ const App: React.FC = () => {
     reader.readAsDataURL(accessPointsFile);
     reader.onloadend = () => {
         setAccessPointsImageUrl(reader.result as string);
+        setAppStage('ADDITIONAL_DETAILS');
     };
-    // Pass the file directly to the generation function
-    handleGeneratePlanOptions(accessPointsFile);
-  }, [handleGeneratePlanOptions]);
+  }, []);
 
   const handleSelectPlanOption = useCallback((imageUrl: string) => {
     setSitePlanImageUrl(imageUrl);
@@ -977,8 +1008,8 @@ const App: React.FC = () => {
                              <h2 className="text-2xl font-bold text-gray-200">One Last Question...</h2>
                              <p className='text-gray-400 max-w-sm'>Are there specific road access points for this site? Marking them will help the AI create a more accurate road network.</p>
                              <div className='flex flex-col sm:flex-row w-full max-w-sm gap-4 mt-4'>
-                                <button onClick={() => handleGeneratePlanOptions(null)} className='flex-1 flex items-center justify-center gap-2 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20'>
-                                    No, Generate Plans
+                                <button onClick={() => { setAccessPointsImageUrl(null); setAppStage('ADDITIONAL_DETAILS'); }} className='flex-1 flex items-center justify-center gap-2 bg-white/10 text-gray-200 font-semibold py-3 px-4 rounded-md transition-colors hover:bg-white/20'>
+                                    No, Let AI Decide
                                 </button>
                                 <button onClick={() => setAppStage('ACCESS_POINTS')} className='flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white font-bold py-3 px-4 rounded-md transition-colors hover:bg-blue-500'>
                                     Yes, Mark Points
@@ -986,6 +1017,54 @@ const App: React.FC = () => {
                              </div>
                         </div>
                     )}
+                    {appStage === 'ADDITIONAL_DETAILS' && (
+                        <div className='flex flex-col h-full justify-center items-center text-center gap-8 animate-fade-in w-full max-w-md mx-auto'>
+                            <div className="w-12 h-12 flex-shrink-0 bg-blue-500/20 rounded-full flex items-center justify-center"><RobotIcon className="w-7 h-7 text-blue-300" /></div>
+                            <h2 className="text-2xl font-bold text-gray-200">Additional Site Details</h2>
+                            <p className='text-gray-400'>A few final details will help create a better plan.</p>
+                            
+                            <div className="w-full space-y-6 text-left">
+                                {!accessPointsImageUrl && (
+                                    <div className='bg-gray-800/50 p-4 rounded-lg'>
+                                        <label htmlFor="entrance-count" className="block text-lg text-gray-200 font-semibold mb-2">How many main road entrances should the site plan have?</label>
+                                        <p className="text-sm text-gray-400 mb-3">The AI will distribute them optimally along the site perimeter.</p>
+                                        <input
+                                            type="number"
+                                            id="entrance-count"
+                                            value={numberOfEntrances}
+                                            onChange={(e) => setNumberOfEntrances(Math.max(1, parseInt(e.target.value, 10)) || 1)}
+                                            className="bg-gray-900/50 border border-gray-600 text-gray-200 rounded-md p-2 w-full text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+                                            min="1"
+                                        />
+                                    </div>
+                                )}
+                                <div className='bg-gray-800/50 p-4 rounded-lg'>
+                                    <p className="text-lg text-gray-200 font-semibold mb-3">Are there any ponds or significant water bodies on the site that must be preserved?</p>
+                                    <div className='flex w-full gap-4'>
+                                        <button onClick={() => setHasPonds(false)} className={`flex-1 py-3 px-4 rounded-md font-bold transition-all ${hasPonds === false ? 'bg-blue-600 text-white ring-2 ring-blue-400' : 'bg-white/10 text-gray-200 hover:bg-white/20'}`}>No</button>
+                                        <button onClick={() => setHasPonds(true)} className={`flex-1 py-3 px-4 rounded-md font-bold transition-all ${hasPonds === true ? 'bg-blue-600 text-white ring-2 ring-blue-400' : 'bg-white/10 text-gray-200 hover:bg-white/20'}`}>Yes</button>
+                                    </div>
+                                </div>
+                                <div className='bg-gray-800/50 p-4 rounded-lg'>
+                                    <p className="text-lg text-gray-200 font-semibold mb-3">Is the use of cul-de-sacs (dead-end streets) allowed in the design?</p>
+                                     <div className='flex w-full gap-4'>
+                                        <button onClick={() => setCulDeSacAllowed(false)} className={`flex-1 py-3 px-4 rounded-md font-bold transition-all ${!culDeSacAllowed ? 'bg-blue-600 text-white ring-2 ring-blue-400' : 'bg-white/10 text-gray-200 hover:bg-white/20'}`}>No</button>
+                                        <button onClick={() => setCulDeSacAllowed(true)} className={`flex-1 py-3 px-4 rounded-md font-bold transition-all ${culDeSacAllowed ? 'bg-blue-600 text-white ring-2 ring-blue-400' : 'bg-white/10 text-gray-200 hover:bg-white/20'}`}>Yes</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className='w-full max-w-sm mt-4'>
+                                <button 
+                                    onClick={handleGeneratePlanOptions}
+                                    disabled={hasPonds === null}
+                                    className='w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-bold py-4 px-4 rounded-lg transition-colors hover:bg-blue-500 disabled:bg-gray-500 disabled:cursor-not-allowed'
+                                >
+                                    Generate Plan Options
+                                </button>
+                            </div>
+                        </div>
+                   )}
                     {appStage === 'PLAN_REFINEMENT' && sitePlanImageUrl && datapoints && (
                        <PlanRefiner
                           initialDatapoints={datapoints}

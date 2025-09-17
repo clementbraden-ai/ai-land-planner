@@ -350,6 +350,9 @@ Return ONLY the JSON object. Do not add any other text or markdown.`;
  * @param datapoints The detailed site parameters.
  * @param networkType The type of road network to generate.
  * @param lotCountRange The required range for the number of lots.
+ * @param numberOfEntrances The number of entrances if access points aren't manually specified.
+ * @param hasPonds Whether the site has ponds that must be preserved.
+ * @param culDeSacAllowed Whether cul-de-sacs are allowed in the design.
  * @returns A promise that resolves to the data URL of the generated site plan image.
  */
 export const generateSitePlan = async (
@@ -361,6 +364,9 @@ export const generateSitePlan = async (
     datapoints: SiteDatapoints,
     networkType: string,
     lotCountRange: { min: number, max: number },
+    numberOfEntrances: number | null,
+    hasPonds: boolean | null,
+    culDeSacAllowed: boolean,
 ): Promise<string> => {
     console.log(`Starting site plan generation for ${networkType} network with lot range ${lotCountRange.min}-${lotCountRange.max}...`);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
@@ -374,6 +380,16 @@ export const generateSitePlan = async (
         const accessPointsPart = await fileToPart(accessPointsImage);
         parts.push(accessPointsPart);
         accessPointsPrompt = `The road network MUST connect to the access points marked with blue circles in the provided image. This is a critical requirement.`
+    } else if (numberOfEntrances !== null) {
+        accessPointsPrompt = `The site plan MUST have exactly ${numberOfEntrances} road entrances connecting to the site's perimeter. The AI should determine the optimal locations for these entrances.`
+    }
+    
+    let specialConditions = [];
+    if (hasPonds) {
+        specialConditions.push('The site contains one or more ponds or significant water bodies. You MUST incorporate these natural features into the design, designing the road network and lots around them. Do not place any development over existing water features visible in the survey.');
+    }
+    if (!culDeSacAllowed) {
+        specialConditions.push('The use of cul-de-sacs (dead-end streets) is strictly PROHIBITED. All roads must connect to other roads to form a continuous, flowing network without dead ends.');
     }
     
     const prompt = `You are an expert AI urban planner. Your task is to generate a professional site plan based on a set of images and constraints.
@@ -414,6 +430,7 @@ ${accessPointsImage ? "3. **Access Points Image:** Blue circles mark MANDATORY r
 -   Road Width: ${datapoints.roadWidth} ft
 -   Sidewalk Width: ${datapoints.sidewalkWidth} ft
 -   ${accessPointsPrompt}
+${specialConditions.length > 0 ? specialConditions.map(c => `-   ${c}`).join('\n') : ''}
 
 ### OUTPUT REQUIREMENTS ###
 -   **Format:** A clean, high-resolution, top-down 2D site plan image.
