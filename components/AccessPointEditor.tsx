@@ -118,7 +118,7 @@ const AccessPointEditor: React.FC<AccessPointEditorProps> = ({ surveyImageUrl, b
                 className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 disabled:from-blue-800 disabled:cursor-not-allowed"
             >
                <CheckIcon className='w-5 h-5'/>
-               Confirm Points & Generate
+               Confirm Points & Continue
             </button>
         </div>
     </div>

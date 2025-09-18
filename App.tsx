@@ -697,14 +697,29 @@ const App: React.FC = () => {
     }
   }, [surveyImageUrl, boundaryImageUrl, accessPointsImageUrl, projectPurpose, designPriority, datapoints, numberOfEntrances, hasPonds, culDeSacAllowed]);
 
-  const handleConfirmAccessPoints = useCallback((accessPointsFile: File) => {
-    // Convert file to dataURL to save for session persistence
-    const reader = new FileReader();
-    reader.readAsDataURL(accessPointsFile);
-    reader.onloadend = () => {
-        setAccessPointsImageUrl(reader.result as string);
-        setAppStage('ADDITIONAL_DETAILS');
-    };
+  const handleConfirmAccessPoints = useCallback(async (accessPointsFile: File) => {
+    // This function is called after the user finishes marking access points.
+    // It converts the canvas drawing into a data URL, saves it to state,
+    // and then transitions to the 'ADDITIONAL_DETAILS' stage.
+    // This ensures that the user is asked about ponds and cul-de-sacs
+    // before the plan generation, creating a consistent workflow.
+    try {
+        const imageUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(accessPointsFile);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = (error) => reject(error);
+        });
+
+        if (imageUrl) {
+            setAccessPointsImageUrl(imageUrl);
+            setAppStage('ADDITIONAL_DETAILS');
+        }
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred while processing access points.';
+        setError(`Failed to save access points. ${errorMessage}`);
+        console.error(err);
+    }
   }, []);
 
   const handleSelectPlanOption = useCallback((imageUrl: string) => {
