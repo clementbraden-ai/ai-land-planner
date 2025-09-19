@@ -342,7 +342,6 @@ Return ONLY the JSON object. Do not add any other text or markdown.`;
 
 /**
  * Generates a site plan image from a site survey image.
- * @param surveyImage The site survey image file.
  * @param boundaryImage The site boundary overlay image file.
  * @param accessPointsImage Optional image with user-marked access points.
  * @param purpose The purpose of the project (e.g., "Commercial").
@@ -353,10 +352,11 @@ Return ONLY the JSON object. Do not add any other text or markdown.`;
  * @param numberOfEntrances The number of entrances if access points aren't manually specified.
  * @param hasPonds Whether the site has ponds that must be preserved.
  * @param culDeSacAllowed Whether cul-de-sacs are allowed in the design.
+ * @param totalSiteArea The total area of the site in square feet.
+ * @param minLotSizePercentage The minimum lot size as a percentage of the total site area.
  * @returns A promise that resolves to the data URL of the generated site plan image.
  */
 export const generateSitePlan = async (
-    surveyImage: File,
     boundaryImage: File,
     accessPointsImage: File | null,
     purpose: string,
@@ -367,13 +367,14 @@ export const generateSitePlan = async (
     numberOfEntrances: number | null,
     hasPonds: boolean | null,
     culDeSacAllowed: boolean,
+    totalSiteArea: number,
+    minLotSizePercentage: number,
 ): Promise<string> => {
     console.log(`Starting site plan generation for ${networkType} network with lot range ${lotCountRange.min}-${lotCountRange.max}...`);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     
-    const surveyImagePart = await fileToPart(surveyImage);
     const boundaryImagePart = await fileToPart(boundaryImage);
-    const parts = [surveyImagePart, boundaryImagePart];
+    const parts = [boundaryImagePart];
     
     let accessPointsPrompt = '';
     if (accessPointsImage) {
@@ -400,31 +401,32 @@ export const generateSitePlan = async (
 -   **Road Network Style:** ${networkType}
 
 ### INPUT IMAGES ###
-1.  **Survey Image:** The base map showing site topography and context.
-2.  **Boundary Image:** A red polygon showing the exact boundary. All development MUST stay within this line.
-${accessPointsImage ? "3. **Access Points Image:** Blue circles mark MANDATORY road connection points.\n" : ""}
+1.  **Boundary Image:** A red polygon showing the exact development boundary. All development MUST be STRICTLY and ENTIRELY contained within this polygon. This is your primary spatial reference.
+${accessPointsImage ? "2. **Access Points Image:** Blue circles mark MANDATORY road connection points.\n" : ""}
 
 ### CORE INSTRUCTIONS (CHAIN-OF-THOUGHT) ###
-1.  **Analyze Site & Constraints:** Review the survey, boundary, and the critical lot count requirement below. Your final design MUST adhere to the lot count range.
+1.  **Analyze Site & Constraints:** Review the boundary image and the critical lot count requirement below.
 2.  **Design Layout:**
     *   Start by laying out the **${networkType} road network**. It must be efficient and connect to the mandatory access points if provided.
     *   Subdivide the remaining area into lots, ensuring each lot meets the minimum size and width requirements.
     *   Arrange lots logically along the roads.
     *   Allocate required green space and open space.
-    *   Ensure all elements (roads, lots, green space) are entirely INSIDE the red boundary polygon.
+    *   **Full Land Utilization (CRITICAL):** The entire area inside the boundary polygon must be fully utilized. It should be completely filled with designated lots (buildable area), roads, green space, or open space. No unassigned or empty areas are allowed.
+    *   **CRITICAL:** Ensure all elements (roads, lots, green space) are entirely INSIDE the red boundary polygon. Nothing should touch or cross the boundary line.
 3.  **Final Validation (Self-Correction - STRICT):** Before creating the final image, you MUST validate your design against these rules:
     *   **Lot Count Check (CRITICAL):** Count the total number of lots in your design. Does the number fall between ${lotCountRange.min} and ${lotCountRange.max}? If not, YOU MUST REDESIGN the layout (adjust road length, lot sizes, green space) until the lot count is within this required range.
-    *   **Boundary Check:** Is everything inside the red boundary?
+    *   **Boundary Check:** Is everything strictly inside the red boundary? There should be a clear buffer between the development and the red line.
     *   **Access Point Check:** Does the road network connect to all access points?
     *   **Priority Check:** Does the layout align with the user's priority (${priority})?
     *   Do not output an image until all validation checks pass, especially the lot count.
 
 ### ZONING & INFRASTRUCTURE REQUIREMENTS (STRICT) ###
+-   **Total Site Area:** ${totalSiteArea.toFixed(0)} sq ft
 -   **Required Lot Count:** Between ${lotCountRange.min} and ${lotCountRange.max} lots.
 -   Max Buildable Coverage: ${datapoints.maxBuildableCoverage}%
 -   Min Green Coverage: ${datapoints.minGreenCoverage}%
 -   Min Open Space: ${datapoints.minOpenSpace}%
--   Min Lot Size: ${datapoints.minLotSize} sq ft
+-   Min Lot Size: ${datapoints.minLotSize} sq ft (${minLotSizePercentage.toFixed(2)}% of total area)
 -   Min Lot Width: ${datapoints.minLotWidth} ft
 -   Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
 -   Road Width: ${datapoints.roadWidth} ft
@@ -439,7 +441,7 @@ ${specialConditions.length > 0 ? specialConditions.map(c => `-   ${c}`).join('\n
     
     const textPart = { text: prompt };
 
-    console.log('Sending survey image and prompt to the model...');
+    console.log('Sending boundary image and prompt to the model...');
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image-preview',
         contents: { parts: [...parts, textPart] },
@@ -513,7 +515,7 @@ Instructions:
 /**
  * Refines an existing site plan based on user input.
  * @param currentPlanImage The current site plan image file.
- * @param surveyImage The original site survey image file for context.
+ * @param boundaryImage The site boundary overlay image file.
  * @param query The user's text instructions for refinement.
  * @param datapoints The updated detailed site parameters.
  * @param accessPointsImage Optional image with user-marked access points.
@@ -522,7 +524,7 @@ Instructions:
  */
 export const refineSitePlan = async (
     currentPlanImage: File,
-    surveyImage: File,
+    boundaryImage: File,
     query: string,
     datapoints: SiteDatapoints,
     accessPointsImage: File | null,
@@ -532,8 +534,8 @@ export const refineSitePlan = async (
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
     
     const currentPlanPart = await fileToPart(currentPlanImage);
-    const surveyPart = await fileToPart(surveyImage);
-    const parts = [currentPlanPart, surveyPart];
+    const boundaryPart = await fileToPart(boundaryImage);
+    const parts = [currentPlanPart, boundaryPart];
 
     let accessPointsPromptSegment = '';
     if (accessPointsImage) {
@@ -541,8 +543,7 @@ export const refineSitePlan = async (
         parts.push(accessPointsPart);
         accessPointsPromptSegment = `
 **Road Access Points:** You are also given an image with blue circles indicating mandatory road access points.
-- The refined road network MUST connect to these points.
-- It is CRITICAL that you preserve these blue circles in their exact positions in the final output. Do not move, alter, or remove them.`;
+- The refined road network MUST connect to these points.`;
     }
 
     let maskPromptSegment = '';
@@ -556,7 +557,7 @@ export const refineSitePlan = async (
     const prompt = `You are an expert urban planner. The user wants to refine an existing site plan.
 You are given:
 1. The current site plan image to be modified.
-2. The original site survey image for context and boundaries.
+2. The site boundary image (a red polygon). All development must remain STRICTLY within this boundary.
 3. A text query with refinement instructions: "${query}"
 4. Updated Site Plan Constraints.
 ${accessPointsPromptSegment}
@@ -566,6 +567,7 @@ ${maskPromptSegment}
 - Optimize traffic flow and connectivity throughout the site.
 - Minimize dead-end streets where possible, unless creating a deliberate cul-de-sac for residential areas.
 - Intelligently incorporate cul-de-sacs or roundabouts where they would improve traffic circulation or lot arrangement.
+- **Full Land Utilization:** The entire area inside the boundary polygon must be fully utilized. It should be completely filled with designated lots (buildable area), roads, green space, or open space. After your edits, ensure no unassigned or empty areas remain.
 
 Updated Constraints (Adhere Strictly):
 - Maximum buildable coverage: ${datapoints.maxBuildableCoverage}%
@@ -582,7 +584,7 @@ Instructions:
 - Modify it based on the user's text query. The query may contain both visual instructions (e.g., "add a park") and parameter changes (e.g., "make lots bigger"). Prioritize instructions in the query.
 - If a user mask is provided, use it to guide where the changes should be made. The magenta marks show where to focus.
 - While implementing the changes, ensure the entire plan adheres to the **Core Planning Principles** mentioned above.
-- Ensure the refined plan still respects the updated constraints, the original survey's boundaries, and the mandatory access points if provided.
+- **CRITICAL**: The refined plan MUST respect all updated constraints and be contained ENTIRELY within the provided red boundary polygon. Nothing should touch or cross the boundary line. It must also respect mandatory access points if provided.
 - The output must be a new, clean, high-resolution PNG image of the refined site plan. The visual style should match the input plan.
 
 Output: Return ONLY the refined site plan image. Do not return any text.`;
@@ -597,6 +599,81 @@ Output: Return ONLY the refined site plan image. Do not return any text.`;
     console.log('Received refined site plan from model.', response);
     
     return handleImageApiResponse(response, 'refine site plan');
+};
+
+/**
+ * Automatically improves the road network of a site plan.
+ * @param currentPlanImage The current site plan image file.
+ * @param boundaryImage The site boundary overlay image file.
+ * @param datapoints The detailed site parameters.
+ * @param accessPointsImage Optional image with user-marked access points.
+ * @returns A promise that resolves to the data URL of the improved site plan image.
+ */
+export const autoImproveRoadNetwork = async (
+    currentPlanImage: File,
+    boundaryImage: File,
+    datapoints: SiteDatapoints,
+    accessPointsImage: File | null,
+): Promise<string> => {
+    console.log('Auto-improving road network...');
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+
+    const currentPlanPart = await fileToPart(currentPlanImage);
+    const boundaryPart = await fileToPart(boundaryImage);
+    const parts = [currentPlanPart, boundaryPart];
+
+    let accessPointsPromptSegment = '';
+    if (accessPointsImage) {
+        const accessPointsPart = await fileToPart(accessPointsImage);
+        parts.push(accessPointsPart);
+        accessPointsPromptSegment = `
+- **Mandatory Access Points:** The refined road network MUST continue to connect to the access points marked with blue circles. Preserving these connections is critical.`;
+    }
+
+    const prompt = `### ROLE ###
+You are an expert AI traffic engineer and urban planner. Your task is to analyze an existing site plan and generate a revised version with an improved road network.
+
+### CONTEXT ###
+You are given the current site plan and the site boundary image (a red polygon). Your goal is to improve the road network for efficiency, safety, aesthetic appeal, and pedestrian-friendliness while adhering to all original zoning constraints and staying STRICTLY inside the boundary.
+
+### ANALYSIS & IMPROVEMENT GOALS (CHAIN-OF-THOUGHT) ###
+1.  **Analyze Existing Network:** Scrutinize the road layout in the 'current site plan'. Identify areas for improvement:
+    *   **Inefficiency:** Are there overly long roads, awkward intersections, or poor connectivity?
+    *   **Safety:** Are there opportunities for traffic calming? Could cul-de-sacs be added to residential areas to reduce through-traffic? Are intersections clear and safe?
+    *   **Aesthetics & Pedestrians:** Does the layout feel rigid or uninspired? Can you add gentle curves, roundabouts, or green medians? Can pedestrian connectivity be improved with more logical sidewalk paths or crosswalks?
+2.  **Generate Improvements:** Based on your analysis, redesign the road network. All new roads must be within the provided red boundary.
+    *   Introduce traffic calming measures like cul-de-sacs or roundabouts where appropriate.
+    *   Optimize intersections for better flow.
+    *   Improve the overall aesthetic feel of the road layout.
+3.  **Re-integrate Lots & Green Space:** After redesigning the roads, re-layout the lots and green spaces around the new network. All lots must still have road access.
+4.  **Final Validation:** Ensure the new plan STILL STRICTLY ADHERES to all the original constraints provided below AND is entirely contained within the red boundary.
+
+### CONSTRAINTS (MUST ADHERE) ###
+-   **Boundary:** All development MUST be strictly and entirely contained within the red polygon from the boundary image.
+-   Max Buildable Coverage: ${datapoints.maxBuildableCoverage}%
+-   Min Green Coverage: ${datapoints.minGreenCoverage}%
+-   Min Open Space: ${datapoints.minOpenSpace}%
+-   Min Lot Size: ${datapoints.minLotSize} sq ft
+-   Min Lot Width: ${datapoints.minLotWidth} ft
+-   Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
+-   Road Width: ${datapoints.roadWidth} ft
+-   Sidewalk Width: ${datapoints.sidewalkWidth} ft
+${accessPointsPromptSegment}
+
+### OUTPUT REQUIREMENTS ###
+-   **Format:** A clean, high-resolution, top-down 2D site plan image. The visual style must match the input plan.
+-   **Content:** Return ONLY the final revised site plan image. Do not return any text.`;
+    
+    const textPart = { text: prompt };
+
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image-preview',
+        contents: { parts: [...parts, textPart] },
+        config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
+    });
+    console.log('Received auto-improved site plan from model.', response);
+    
+    return handleImageApiResponse(response, 'auto-improve road network');
 };
 
 
@@ -734,7 +811,7 @@ ${formattedHistory}
 1.  **Analyze the Conversation and the Current Plan:** Carefully review the transcript to understand the project's history, goals (purpose and priority), and any previous refinement steps. Simultaneously, visually analyze the provided site plan image for its strengths and weaknesses (e.g., traffic flow, green space distribution, lot shapes).
 2.  **Align with Goals and Visuals:** Generate suggestions that directly support the user's stated goals AND address observations from the visual plan.
     - If Priority is "Maximize Lot Yield", and the plan shows awkward empty spaces, suggest ways to reconfigure lots to use that space.
-    - If Purpose is "Residential" and the plan has one small park, suggest consolidating green space or adding walking paths.
+    - If Purpose is "Residential" and the plan shows one small park, suggest consolidating green space or adding walking paths.
     - If the plan shows long, straight roads, suggest traffic calming measures like a roundabout.
 3.  **Focus on Actionable Changes:** Your suggestions must be phrased as direct, actionable commands for an AI. They should describe **structural or visual changes** (e.g., adding features, reconfiguring roads) rather than simple parameter adjustments (e.g., "increase lot size"). The user will also have a form to change parameters, so your suggestions should be about things that cannot be done in the form.
 

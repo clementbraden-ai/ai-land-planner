@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { SiteDatapoints } from '../types';
 import DatapointsForm from './DatapointsForm';
-import { MagicWandIcon, SearchIcon, LightBulbIcon, PencilIcon } from './icons';
+import { MagicWandIcon, SearchIcon, LightBulbIcon, PencilIcon, SparklesIcon } from './icons';
 import Spinner from './Spinner';
 import SuggestionChips from './SuggestionChips';
 
@@ -16,12 +16,13 @@ interface PlanRefinerProps {
   onRefine: (query: string, datapoints: SiteDatapoints) => void;
   onAnalyze: () => void;
   onStartEdit: () => void;
+  onAutoImprove: () => void;
   isLoading: boolean;
   suggestions: string[];
   isSuggestionsLoading: boolean;
 }
 
-const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapointsChange, onRefine, onAnalyze, onStartEdit, isLoading, suggestions, isSuggestionsLoading }) => {
+const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapointsChange, onRefine, onAnalyze, onStartEdit, onAutoImprove, isLoading, suggestions, isSuggestionsLoading }) => {
     const [query, setQuery] = useState('');
     
     const handleRefineClick = () => {
@@ -92,6 +93,14 @@ const PlanRefiner: React.FC<PlanRefinerProps> = ({ initialDatapoints, onDatapoin
                 >
                     <PencilIcon className="w-5 h-5" />
                     Edit on Canvas
+                </button>
+                <button
+                    onClick={onAutoImprove}
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-br from-teal-500 to-cyan-500 text-white font-bold py-3 px-4 rounded-md transition-all hover:from-teal-400 hover:to-cyan-400 hover:shadow-lg hover:shadow-cyan-500/20 disabled:from-gray-600 disabled:to-gray-500 disabled:shadow-none disabled:cursor-not-allowed"
+                >
+                    <SparklesIcon className="w-5 h-5" />
+                    Auto-Improve Road Network
                 </button>
                 <button
                     onClick={onAnalyze}

@@ -6,7 +6,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { generateSitePlan, getSitePlanDatapoints, detectSiteBoundary, refineSiteBoundary, analyzeSitePlan, refineSitePlan, getSurveySummary, updateDatapointsFromQuery, getBoundaryRefinementSuggestions, getPlanRefinementSuggestions, getSiteArea } from './services/geminiService';
+import { generateSitePlan, getSitePlanDatapoints, detectSiteBoundary, refineSiteBoundary, analyzeSitePlan, refineSitePlan, getSurveySummary, updateDatapointsFromQuery, getBoundaryRefinementSuggestions, getPlanRefinementSuggestions, getSiteArea, autoImproveRoadNetwork } from './services/geminiService';
 import { SiteDatapoints } from './types';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
@@ -652,6 +652,8 @@ const App: React.FC = () => {
             totalAreaSqFt = area * 107639;
         }
         console.log(`Total area in sq ft: ${totalAreaSqFt.toFixed(0)}`);
+        
+        const minLotSizePercentage = (datapoints.minLotSize / totalAreaSqFt) * 100;
 
         const maxLotsFromBuildable = (datapoints.maxBuildableCoverage / 100) * totalAreaSqFt / datapoints.minLotSize;
         const maxLotsFromOpenSpace = totalAreaSqFt * (1 - (datapoints.minGreenCoverage / 100) - (datapoints.minOpenSpace / 100)) / datapoints.minLotSize;
@@ -666,7 +668,6 @@ const App: React.FC = () => {
         for (const type of networkTypes) {
             try {
                 const url = await generateSitePlan(
-                    surveyImageFile, 
                     boundaryImageFile, 
                     accessPointsFile, 
                     projectPurpose!, 
@@ -676,7 +677,9 @@ const App: React.FC = () => {
                     lotCountRange, 
                     accessPointsFile ? null : numberOfEntrances,
                     hasPonds,
-                    culDeSacAllowed
+                    culDeSacAllowed,
+                    totalAreaSqFt,
+                    minLotSizePercentage
                 );
                 setPlanOptions(prev => ({
                     ...prev,
@@ -729,7 +732,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleRefineSitePlan = useCallback(async (query: string, datapointsFromForm: SiteDatapoints) => {
-    if (!sitePlanImageUrl || !surveyImageUrl || !projectPurpose || !designPriority) {
+    if (!sitePlanImageUrl || !boundaryImageUrl || !projectPurpose || !designPriority) {
         setError('Cannot refine plan without an active plan and project goals.');
         return;
     }
@@ -746,12 +749,12 @@ const App: React.FC = () => {
 
         // Step 2: Refine the visual plan with the query and new datapoints
         const planFile = dataURLtoFile(sitePlanImageUrl, 'plan.png');
-        const surveyFile = dataURLtoFile(surveyImageUrl, 'survey.png');
+        const boundaryFile = dataURLtoFile(boundaryImageUrl, 'boundary.png');
         let accessPointsFile: File | null = null;
         if (accessPointsImageUrl) {
             accessPointsFile = dataURLtoFile(accessPointsImageUrl, 'access-points.png');
         }
-        const refinedUrl = await refineSitePlan(planFile, surveyFile, query, newDatapoints, accessPointsFile, null);
+        const refinedUrl = await refineSitePlan(planFile, boundaryFile, query, newDatapoints, accessPointsFile, null);
         setSitePlanImageUrl(refinedUrl);
 
         // Step 3: Fetch new suggestions based on the refined plan
@@ -774,10 +777,10 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingState(null);
     }
-  }, [sitePlanImageUrl, surveyImageUrl, accessPointsImageUrl, projectPurpose, designPriority, messages]);
+  }, [sitePlanImageUrl, boundaryImageUrl, accessPointsImageUrl, projectPurpose, designPriority, messages]);
 
   const handleVisualRefineSitePlan = useCallback(async (maskFile: File, query: string): Promise<void> => {
-    if (!sitePlanImageUrl || !surveyImageUrl || !datapoints) {
+    if (!sitePlanImageUrl || !boundaryImageUrl || !datapoints) {
         setError('Required information is missing for visual refinement.');
         return;
     }
@@ -785,14 +788,14 @@ const App: React.FC = () => {
     setError(null);
     try {
         const planFile = dataURLtoFile(sitePlanImageUrl, 'plan.png');
-        const surveyFile = dataURLtoFile(surveyImageUrl, 'survey.png');
+        const boundaryFile = dataURLtoFile(boundaryImageUrl, 'boundary.png');
         let accessPointsFile: File | null = null;
         if (accessPointsImageUrl) {
             accessPointsFile = dataURLtoFile(accessPointsImageUrl, 'access-points.png');
         }
 
         // Call the updated refineSitePlan function with the mask
-        const refinedUrl = await refineSitePlan(planFile, surveyFile, query, datapoints, accessPointsFile, maskFile);
+        const refinedUrl = await refineSitePlan(planFile, boundaryFile, query, datapoints, accessPointsFile, maskFile);
         setSitePlanImageUrl(refinedUrl);
         setAppStage('PLAN_REFINEMENT'); // Go back to refinement view
 
@@ -813,7 +816,38 @@ const App: React.FC = () => {
         console.error(err);
         throw err; // Re-throw for editor to handle
     }
-  }, [sitePlanImageUrl, surveyImageUrl, accessPointsImageUrl, datapoints, messages]);
+  }, [sitePlanImageUrl, boundaryImageUrl, accessPointsImageUrl, datapoints, messages]);
+
+  const handleAutoImproveRoadNetwork = useCallback(async () => {
+    if (!sitePlanImageUrl || !boundaryImageUrl || !datapoints) {
+        setError('Cannot auto-improve plan without an active plan and project data.');
+        return;
+    }
+    setIsLoading(true);
+    setLoadingState({
+        title: "Optimizing Road Network",
+        messages: ["AI is analyzing traffic flow...", "Improving intersections and safety...", "Redrawing the road layout...", "Rendering the optimized plan..."]
+    });
+    setError(null);
+    try {
+        const planFile = dataURLtoFile(sitePlanImageUrl, 'plan.png');
+        const boundaryFile = dataURLtoFile(boundaryImageUrl, 'boundary.png');
+        let accessPointsFile: File | null = null;
+        if (accessPointsImageUrl) {
+            accessPointsFile = dataURLtoFile(accessPointsImageUrl, 'access-points.png');
+        }
+
+        const improvedUrl = await autoImproveRoadNetwork(planFile, boundaryFile, datapoints, accessPointsFile);
+        setSitePlanImageUrl(improvedUrl);
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        setError(`Failed to auto-improve the road network. ${errorMessage}`);
+        console.error(err);
+    } finally {
+        setIsLoading(false);
+        setLoadingState(null);
+    }
+  }, [sitePlanImageUrl, boundaryImageUrl, accessPointsImageUrl, datapoints]);
 
   const handleAnalyzeSitePlan = useCallback(async () => {
     if (!sitePlanImageUrl || !datapoints) {
@@ -1087,6 +1121,7 @@ const App: React.FC = () => {
                           onRefine={handleRefineSitePlan}
                           onAnalyze={handleAnalyzeSitePlan}
                           onStartEdit={() => setAppStage('PLAN_EDIT')}
+                          onAutoImprove={handleAutoImproveRoadNetwork}
                           isLoading={isLoading}
                           suggestions={planSuggestions}
                           isSuggestionsLoading={isFetchingPlanSuggestions}
