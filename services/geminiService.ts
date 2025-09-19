@@ -418,6 +418,7 @@ ${accessPointsImage ? "2. **Access Points Image:** Blue circles mark MANDATORY r
     *   **Boundary Check:** Is everything strictly inside the red boundary? There should be a clear buffer between the development and the red line.
     *   **Access Point Check:** Does the road network connect to all access points?
     *   **Priority Check:** Does the layout align with the user's priority (${priority})?
+    *   **Setback Check:** Does the placement of roads and green spaces respect the required setbacks for each lot?
     *   Do not output an image until all validation checks pass, especially the lot count.
 
 ### ZONING & INFRASTRUCTURE REQUIREMENTS (STRICT) ###
@@ -426,9 +427,9 @@ ${accessPointsImage ? "2. **Access Points Image:** Blue circles mark MANDATORY r
 -   Max Buildable Coverage: ${datapoints.maxBuildableCoverage}%
 -   Min Green Coverage: ${datapoints.minGreenCoverage}%
 -   Min Open Space: ${datapoints.minOpenSpace}%
--   Min Lot Size: ${datapoints.minLotSize} sq ft (${minLotSizePercentage.toFixed(2)}% of total area)
+-   Min Lot Size: ${datapoints.minLotSize} sq ft
 -   Min Lot Width: ${datapoints.minLotWidth} ft
--   Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
+-   Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side). **CRITICAL**: These setbacks define the buildable area *within* each lot. You MUST ensure that no part of the road network or any common green/open space encroaches upon these required setback areas. Roads and common spaces must be placed outside of the setback buffer of any given lot.
 -   Road Width: ${datapoints.roadWidth} ft
 -   Sidewalk Width: ${datapoints.sidewalkWidth} ft
 -   ${accessPointsPrompt}
@@ -437,6 +438,9 @@ ${specialConditions.length > 0 ? specialConditions.map(c => `-   ${c}`).join('\n
 ### OUTPUT REQUIREMENTS ###
 -   **Format:** A clean, high-resolution, top-down 2D site plan image.
 -   **Styling:** Use clear visual distinctions: black for roads, green for green spaces, and gray for lots.
+-   **Lot Numbering (CRITICAL):** You MUST add a number to each individual lot. The numbers should be sequential (1, 2, 3, etc.), written in a clear, legible white font, and placed in the center of each lot. Ensure the numbers are large enough to be readable but do not overlap with lot boundaries or roads.
+-   **Site Boundary Line (CRITICAL):** You MUST draw a single, continuous line that follows the exact perimeter of the entire developed site (i.e., the outermost edge of all lots, roads, and green spaces). This line should be red (#FF0000), 3 pixels thick, and must be positioned just inside the main red boundary provided in the input image. This visually separates the developed area from any surrounding undeveloped land within the property parcel.
+-   **Building Footprints (CRITICAL):** Inside EACH individual lot, you must draw the buildable area outline. This outline MUST be a simple, centered rectangle. The edges of this rectangle must be positioned exactly according to the ${datapoints.frontSetback} ft front, ${datapoints.rearSetback} ft rear, and ${datapoints.sideSetback} ft side setback requirements. The outline itself should be a thin, dashed white line (2 pixels thick).
 -   **Content:** Return ONLY the final site plan image. Do not return any text.`;
     
     const textPart = { text: prompt };
@@ -575,7 +579,7 @@ Updated Constraints (Adhere Strictly):
 - Minimum open space: ${datapoints.minOpenSpace}%
 - Minimum lot size: ${datapoints.minLotSize} sq ft
 - Minimum lot width: ${datapoints.minLotWidth} ft
-- Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
+- Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side). **CRITICAL**: Your modifications must respect these setbacks. Roads and common green spaces must not be placed within the setback areas of individual lots.
 - Road width: ${datapoints.roadWidth} ft
 - Sidewalk width: ${datapoints.sidewalkWidth} ft
 
@@ -584,8 +588,11 @@ Instructions:
 - Modify it based on the user's text query. The query may contain both visual instructions (e.g., "add a park") and parameter changes (e.g., "make lots bigger"). Prioritize instructions in the query.
 - If a user mask is provided, use it to guide where the changes should be made. The magenta marks show where to focus.
 - While implementing the changes, ensure the entire plan adheres to the **Core Planning Principles** mentioned above.
+- **Lot Numbering:** After applying changes, re-number all lots sequentially (1, 2, 3...). The numbers must be clear, legible, in a white font, and centered within each lot.
 - **CRITICAL**: The refined plan MUST respect all updated constraints and be contained ENTIRELY within the provided red boundary polygon. Nothing should touch or cross the boundary line. It must also respect mandatory access points if provided.
-- The output must be a new, clean, high-resolution PNG image of the refined site plan. The visual style should match the input plan.
+- The output must be a new, clean, high-resolution PNG image of the refined site plan. The visual style must be consistent: black for roads, green for green spaces, gray for lots.
+- **Site Boundary Line:** The refined plan MUST include a continuous 3-pixel thick red (#FF0000) line enclosing the entire developed site just inside the red boundary.
+- **Building Footprints (CRITICAL):** Inside EACH lot, you MUST include a simple, rectangular building footprint outline. This outline must be a thin, dashed white line (2 pixels thick) and must be positioned to respect the ${datapoints.frontSetback} ft front, ${datapoints.rearSetback} ft rear, and ${datapoints.sideSetback} ft side setbacks.
 
 Output: Return ONLY the refined site plan image. Do not return any text.`;
     
@@ -646,7 +653,7 @@ You are given the current site plan and the site boundary image (a red polygon).
     *   Optimize intersections for better flow.
     *   Improve the overall aesthetic feel of the road layout.
 3.  **Re-integrate Lots & Green Space:** After redesigning the roads, re-layout the lots and green spaces around the new network. All lots must still have road access.
-4.  **Final Validation:** Ensure the new plan STILL STRICTLY ADHERES to all the original constraints provided below AND is entirely contained within the red boundary.
+4.  **Final Validation:** Ensure the new plan STILL STRICTLY ADHERES to all the original constraints provided below AND is entirely contained within the red boundary. Also verify every lot is clearly numbered.
 
 ### CONSTRAINTS (MUST ADHERE) ###
 -   **Boundary:** All development MUST be strictly and entirely contained within the red polygon from the boundary image.
@@ -655,13 +662,15 @@ You are given the current site plan and the site boundary image (a red polygon).
 -   Min Open Space: ${datapoints.minOpenSpace}%
 -   Min Lot Size: ${datapoints.minLotSize} sq ft
 -   Min Lot Width: ${datapoints.minLotWidth} ft
--   Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side)
+-   Setbacks: ${datapoints.frontSetback} ft (Front), ${datapoints.rearSetback} ft (Rear), ${datapoints.sideSetback} ft (Side). **CRITICAL**: When re-laying out lots, you must strictly adhere to these setbacks. Ensure no common areas or roads encroach upon the setback zones of the lots.
 -   Road Width: ${datapoints.roadWidth} ft
 -   Sidewalk Width: ${datapoints.sidewalkWidth} ft
 ${accessPointsPromptSegment}
 
 ### OUTPUT REQUIREMENTS ###
--   **Format:** A clean, high-resolution, top-down 2D site plan image. The visual style must match the input plan.
+-   **Format & Styling:** A clean, high-resolution, top-down 2D site plan image with a consistent visual style: black for roads, green for green spaces, gray for lots, and a continuous 3-pixel thick red (#FF0000) line enclosing the entire developed site just inside the red boundary.
+-   **Lot Numbering (CRITICAL):** Each lot in the output image must be clearly labeled with a sequential number (1, 2, 3, etc.) in a legible white font, centered on the lot.
+-   **Building Footprints (CRITICAL):** Inside EACH re-laid out lot, you must draw the buildable area outline. This outline MUST be a simple, centered rectangle. The edges of this rectangle must be positioned exactly according to the ${datapoints.frontSetback} ft front, ${datapoints.rearSetback} ft rear, and ${datapoints.sideSetback} ft side setback requirements. The outline itself should be a thin, dashed white line (2 pixels thick).
 -   **Content:** Return ONLY the final revised site plan image. Do not return any text.`;
     
     const textPart = { text: prompt };

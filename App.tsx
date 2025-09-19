@@ -167,8 +167,6 @@ const App: React.FC = () => {
   const [boundaryImageUrl, setBoundaryImageUrl] = useState<string | null>(null);
   const [accessPointsImageUrl, setAccessPointsImageUrl] = useState<string | null>(null);
   const [sitePlanImageUrl, setSitePlanImageUrl] = useState<string | null>(null);
-  const [planOptions, setPlanOptions] = useState<Record<string, { url: string | null; description: string }>>({});
-  const [isGeneratingPlans, setIsGeneratingPlans] = useState<boolean>(false);
   const [planAnalysis, setPlanAnalysis] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingState, setLoadingState] = useState<LoadingState | null>(null);
@@ -209,7 +207,6 @@ const App: React.FC = () => {
             setBoundaryImageUrl(savedState.boundaryImageUrl || null);
             setAccessPointsImageUrl(savedState.accessPointsImageUrl || null);
             setSitePlanImageUrl(savedState.sitePlanImageUrl || null);
-            setPlanOptions(savedState.planOptions || {});
             setPlanAnalysis(savedState.planAnalysis || null);
             setMessages(savedState.messages || []);
             setProjectPurpose(savedState.projectPurpose || null);
@@ -246,7 +243,6 @@ const App: React.FC = () => {
         boundaryImageUrl,
         accessPointsImageUrl,
         sitePlanImageUrl,
-        planOptions,
         planAnalysis,
         messages,
         projectPurpose,
@@ -266,7 +262,7 @@ const App: React.FC = () => {
     }
   }, [
       isStateLoaded, appStage, surveyImageUrl, boundaryImageUrl, accessPointsImageUrl,
-      sitePlanImageUrl, planOptions, planAnalysis, messages, projectPurpose,
+      sitePlanImageUrl, planAnalysis, messages, projectPurpose,
       designPriority, aiRecommendations, datapoints, surveySummary, numberOfEntrances,
       hasPonds, culDeSacAllowed
   ]);
@@ -278,7 +274,6 @@ const App: React.FC = () => {
     setBoundaryImageUrl(null);
     setAccessPointsImageUrl(null);
     setSitePlanImageUrl(null);
-    setPlanOptions({});
     setPlanAnalysis(null);
     setDatapoints(null);
     setSurveySummary(null);
@@ -296,7 +291,6 @@ const App: React.FC = () => {
     setError(null);
     setIsLoading(false);
     setLoadingState(null);
-    setIsGeneratingPlans(false);
     setIsBotThinking(false);
     setIsSummaryLoading(false);
 
@@ -610,37 +604,27 @@ const App: React.FC = () => {
     }
   }, [surveyImageUrl, boundaryImageUrl, messages]);
 
-  const handleGeneratePlanOptions = useCallback(async () => {
+  const handleContinueToPlanGeneration = useCallback(() => {
+    setAppStage('PLAN_OPTIONS');
+  }, []);
+
+  const handleGenerateSinglePlanPreview = useCallback(async (networkType: string): Promise<string> => {
     if (!surveyImageUrl || !boundaryImageUrl || !projectPurpose || !designPriority || !datapoints) {
-      setError('Required information is missing. Please complete all steps.');
-      return;
+        const errorMsg = 'Required information is missing. Please complete all steps.';
+        setError(errorMsg);
+        throw new Error(errorMsg);
     }
     setError(null);
-    setAppStage('PLAN_OPTIONS');
-    setIsGeneratingPlans(true);
-    
-    const networkTypes = [
-        { name: 'Grid', description: 'A classic criss-cross pattern, efficient and easy to navigate.' },
-        { name: 'Radial', description: 'Roads spread out from a central point, often creating a focal point.' },
-        { name: 'Circular', description: 'Features roads that form loops or circles, good for traffic calming.' },
-        { name: 'Hierarchical', description: 'A mix of major arterial roads and smaller local streets for efficient traffic flow.' },
-        { name: 'Organic', description: 'A flowing, curvilinear layout that follows natural contours, creating a scenic feel.' },
-        { name: 'Cul-de-sac', description: 'Prioritizes dead-end streets to maximize privacy and safety by eliminating through-traffic.' },
-    ];
-    
-    const placeholders = Object.fromEntries(networkTypes.map(nt => [nt.name, { url: null, description: nt.description }]));
-    setPlanOptions(placeholders);
-    
+
     try {
         const surveyImageFile = dataURLtoFile(surveyImageUrl, 'survey.png');
         const boundaryImageFile = dataURLtoFile(boundaryImageUrl, 'boundary.png');
-        
+
         let accessPointsFile: File | null = null;
         if (accessPointsImageUrl) {
             accessPointsFile = dataURLtoFile(accessPointsImageUrl, 'access-points.png');
         }
 
-        // Calculate site area and max lots for accuracy
         console.log("Calculating site area for lot estimation...");
         const { area, unit } = await getSiteArea(surveyImageFile, boundaryImageFile);
         console.log(`Site area detected: ${area} ${unit}`);
@@ -659,44 +643,32 @@ const App: React.FC = () => {
         const maxLotsFromOpenSpace = totalAreaSqFt * (1 - (datapoints.minGreenCoverage / 100) - (datapoints.minOpenSpace / 100)) / datapoints.minLotSize;
 
         const maxLots = Math.floor(Math.min(maxLotsFromBuildable, maxLotsFromOpenSpace));
-        // Set a reasonable minimum, e.g., 70% of the max, but at least 1.
         const minLots = Math.max(1, Math.floor(maxLots * 0.7)); 
 
         const lotCountRange = { min: minLots, max: maxLots };
         console.log(`Calculated lot count range for generation: ${minLots} - ${maxLots}`);
         
-        for (const type of networkTypes) {
-            try {
-                const url = await generateSitePlan(
-                    boundaryImageFile, 
-                    accessPointsFile, 
-                    projectPurpose!, 
-                    designPriority!, 
-                    datapoints, 
-                    type.name, 
-                    lotCountRange, 
-                    accessPointsFile ? null : numberOfEntrances,
-                    hasPonds,
-                    culDeSacAllowed,
-                    totalAreaSqFt,
-                    minLotSizePercentage
-                );
-                setPlanOptions(prev => ({
-                    ...prev,
-                    [type.name]: { ...prev[type.name], url }
-                }));
-            } catch (err) {
-                console.error(`Failed to generate ${type.name} plan:`, err);
-                // Optionally update UI to show an error state for this card
-            }
-        }
+        const url = await generateSitePlan(
+            boundaryImageFile,
+            accessPointsFile,
+            projectPurpose!,
+            designPriority!,
+            datapoints,
+            networkType,
+            lotCountRange,
+            accessPointsFile ? null : numberOfEntrances,
+            hasPonds,
+            culDeSacAllowed,
+            totalAreaSqFt,
+            minLotSizePercentage
+        );
+        return url;
 
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-        setError(`Failed to generate the site plan options. ${errorMessage}`);
-        console.error(err);
-    } finally {
-        setIsGeneratingPlans(false);
+        console.error(`Failed to generate the site plan. ${errorMessage}`);
+        // Re-throw so the component knows it failed and can display the error
+        throw err;
     }
   }, [surveyImageUrl, boundaryImageUrl, accessPointsImageUrl, projectPurpose, designPriority, datapoints, numberOfEntrances, hasPonds, culDeSacAllowed]);
 
@@ -943,9 +915,8 @@ const App: React.FC = () => {
 
     if (appStage === 'PLAN_OPTIONS') {
         return <PlanOptions 
-            options={planOptions} 
+            onGenerate={handleGenerateSinglePlanPreview}
             onSelect={handleSelectPlanOption}
-            isLoading={isGeneratingPlans}
             onBack={handleBack}
         />;
     }
@@ -1105,11 +1076,11 @@ const App: React.FC = () => {
 
                             <div className='w-full max-w-sm mt-4'>
                                 <button 
-                                    onClick={handleGeneratePlanOptions}
+                                    onClick={handleContinueToPlanGeneration}
                                     disabled={hasPonds === null}
                                     className='w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-bold py-4 px-4 rounded-lg transition-colors hover:bg-blue-500 disabled:bg-gray-500 disabled:cursor-not-allowed'
                                 >
-                                    Generate Plan Options
+                                    Continue to Plan Generation
                                 </button>
                             </div>
                         </div>
